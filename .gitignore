@@ -1,0 +1,22 @@
+# Local agent/runtime state
+.omx/
+
+# macOS
+.DS_Store
+
+# Editor and tool state
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs and local environment
+*.log
+.env
+.env.*
+
+# Common dependency/build output
+node_modules/
+dist/
+build/
+coverage/
