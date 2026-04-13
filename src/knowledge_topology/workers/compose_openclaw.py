@@ -56,10 +56,9 @@ RECORD_FIELDS = [
     "claim_ids",
     "basis_claim_ids",
     "file_refs",
-    "tags",
     "updated_at",
 ]
-FILE_REF_FIELDS = ["repo_id", "commit_sha", "path", "path_at_capture", "line_range", "anchor_kind", "excerpt_hash", "verified_at"]
+FILE_REF_FIELDS = ["repo_id", "commit_sha", "path", "path_at_capture", "line_range", "anchor_kind", "verified_at"]
 ANCHOR_KINDS = {"symbol", "line", "excerpt"}
 FORBIDDEN_PATH_PARTS = ("local_blobs", ".openclaw-wiki", ".tmp", "cache")
 FORBIDDEN_ANCHOR_PATH_PARTS = (
@@ -212,14 +211,6 @@ def string_list(value: Any) -> list[str] | None:
     return sorted(item.strip() for item in value)
 
 
-def safe_tags(value: Any) -> list[str] | None:
-    values = string_list(value)
-    if values is None:
-        return None
-    safe = [item for item in values if re.fullmatch(r"[A-Za-z0-9_.:-]+", item)]
-    return safe or None
-
-
 def projected_audiences(value: Any) -> list[str] | None:
     if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
         return None
@@ -306,9 +297,14 @@ def safe_file_ref(item: Any) -> dict[str, Any] | None:
         elif field == "verified_at":
             if isinstance(item[field], str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T[0-9:.-]+Z", item[field]):
                 output[field] = item[field]
-        else:
-            if isinstance(item[field], str) and re.fullmatch(r"[A-Za-z0-9_.:-]+", item[field]):
+        elif field == "repo_id":
+            if isinstance(item[field], str) and re.fullmatch(r"repo_[A-Za-z0-9_.:-]+", item[field]):
                 output[field] = item[field]
+        elif field == "commit_sha":
+            if isinstance(item[field], str) and re.fullmatch(r"[0-9A-Fa-f]{6,64}", item[field]):
+                output[field] = item[field]
+        else:
+            pass
     return output
 
 
@@ -348,10 +344,6 @@ def runtime_record(record: dict[str, Any]) -> dict[str, Any]:
                 output[field] = values
         elif field in {"claim_ids", "basis_claim_ids"}:
             values = opaque_id_list(record[field], "clm")
-            if values is not None:
-                output[field] = values
-        elif field == "tags":
-            values = safe_tags(record[field])
             if values is not None:
                 output[field] = values
         elif field == "file_refs":

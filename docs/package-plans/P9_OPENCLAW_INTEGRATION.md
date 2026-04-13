@@ -138,7 +138,6 @@ Runtime record field whitelist:
 - `claim_ids`
 - `basis_claim_ids`
 - `file_refs`
-- `tags`: safe slug tokens only
 - `updated_at`
 
 Nested field allowlists:
@@ -152,7 +151,6 @@ Nested field allowlists:
 - `line_range`
 - `symbol`
 - `anchor_kind`
-- `excerpt_hash`
 - `verified_at`
 
 `source_ids`, `claim_ids`, and `basis_claim_ids` are opaque ID string arrays
@@ -160,8 +158,10 @@ only.
 
 `file_refs.path` is not a wiki mirror page path. Local, private, cache, or blob
 paths are excluded from `file_refs`; allowed paths remain code/source anchors.
-`file_refs.symbol` is not projected in P9. `anchor_kind` is an enum only, and
-`verified_at`/`updated_at` must be timestamp-shaped strings.
+`file_refs.symbol`, `file_refs.excerpt_hash`, and record `tags` are not
+projected in P9. `repo_id` must be `repo_`-prefixed, `commit_sha` must be
+hex-shaped, `anchor_kind` is an enum only, and `verified_at`/`updated_at` must
+be timestamp-shaped strings.
 
 `open_gaps` entries:
 
