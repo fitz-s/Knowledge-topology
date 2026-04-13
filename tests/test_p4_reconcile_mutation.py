@@ -83,6 +83,7 @@ class P4ReconcileMutationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             digest_json = self.make_digest(root, target_id=new_id("nd"), confidence="low")
+            digest_payload_json = json.loads(digest_json.read_text(encoding="utf-8"))
             mutation_path = reconcile_digest(
                 root,
                 digest_json=digest_json,
@@ -96,6 +97,10 @@ class P4ReconcileMutationTests(unittest.TestCase):
             self.assertIn("open_gap", ops)
             self.assertNotIn("add_edge", ops)
             self.assertFalse(pack.requires_human)
+            self.assertIn(digest_payload_json["id"], pack.evidence_refs)
+            self.assertTrue((root / f"digests/by_source/{digest_payload_json['source_id']}/{digest_payload_json['id']}.json").exists())
+            self.assertIn(digest_payload_json["source_id"], pack.evidence_refs)
+            self.assertTrue((root / f"raw/packets/{digest_payload_json['source_id']}/packet.json").exists())
 
     def test_known_target_with_medium_confidence_adds_edge(self):
         with tempfile.TemporaryDirectory() as tmp:
