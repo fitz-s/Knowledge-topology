@@ -73,6 +73,22 @@ FORBIDDEN_ANCHOR_PATH_PARTS = (
     ".openclaw/config",
     "library/application support/openclaw",
 )
+FORBIDDEN_ANCHOR_TOKENS = (
+    "ignore",
+    "read-only",
+    "banner",
+    "mutate",
+    "bash",
+    "append",
+    "canonical",
+    "registry",
+    "disregard",
+    "instructions",
+    "override",
+    "topology-policy",
+    "topology_policy",
+    "policy",
+)
 FORBIDDEN_TEXT = (
     "raw/local_blobs",
     "local_blobs",
@@ -262,11 +278,22 @@ def safe_anchor_path(value: Any) -> str | None:
         return None
     if folded == "canonical" or folded.startswith("canonical/") or folded.startswith("projections/"):
         return None
+    if any(token in folded for token in FORBIDDEN_ANCHOR_TOKENS):
+        return None
     if not re.fullmatch(r"[A-Za-z0-9_./@+-]+", raw):
         return None
     if "/" not in raw and "." not in raw:
         return None
     return raw
+
+
+def safe_repo_id(value: Any) -> str | None:
+    if not isinstance(value, str) or not re.fullmatch(r"repo_[A-Za-z0-9_.:-]+", value):
+        return None
+    compact = re.sub(r"[^a-z0-9]", "", value.casefold())
+    if any(token in compact for token in ("openclaw", "localblobs", "secret", "token", "credential", "credentials")):
+        return None
+    return value
 
 
 def safe_metadata_value(value: str, field: str) -> str:
@@ -304,8 +331,9 @@ def safe_file_ref(item: Any) -> dict[str, Any] | None:
             if isinstance(item[field], str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T[0-9:.-]+Z", item[field]):
                 output[field] = item[field]
         elif field == "repo_id":
-            if isinstance(item[field], str) and re.fullmatch(r"repo_[A-Za-z0-9_.:-]+", item[field]):
-                output[field] = item[field]
+            safe = safe_repo_id(item[field])
+            if safe is not None:
+                output[field] = safe
         elif field == "commit_sha":
             if isinstance(item[field], str) and re.fullmatch(r"[0-9A-Fa-f]{6,64}", item[field]):
                 output[field] = item[field]
