@@ -217,6 +217,27 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                     clock=lambda: FIXED_TIME,
                 )
 
+    def test_openclaw_rejects_file_where_output_directory_expected(self):
+        for relative in ["projections/openclaw", "projections/openclaw/wiki-mirror", "projections/openclaw/wiki-mirror/pages"]:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / "topology"
+                init_topology(root)
+                target = root / relative
+                if target.is_dir():
+                    target.rmdir()
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("not a directory", encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "must be a directory"):
+                    write_openclaw_projection(
+                        root,
+                        project_id="openclaw_project",
+                        canonical_rev="rev_current",
+                        subject_repo_id="repo_knowledge_topology",
+                        subject_head_sha="abc123",
+                        allow_dirty=True,
+                        clock=lambda: FIXED_TIME,
+                    )
+
     def test_openclaw_preflights_file_symlinks_before_writing_pages(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "topology"

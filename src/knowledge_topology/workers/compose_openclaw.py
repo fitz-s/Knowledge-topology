@@ -221,6 +221,8 @@ def safe_openclaw_dir(paths: TopologyPaths) -> Path:
     for directory in (projections, openclaw, wiki, pages):
         if directory.exists() and directory.is_symlink():
             raise OpenClawComposeError(f"OpenClaw projection directory must not be a symlink: {directory}")
+        if directory.exists() and not directory.is_dir():
+            raise OpenClawComposeError(f"OpenClaw projection path must be a directory: {directory}")
     pages.mkdir(parents=True, exist_ok=True)
     for directory in (projections, openclaw, wiki, pages):
         resolved = directory.resolve()
