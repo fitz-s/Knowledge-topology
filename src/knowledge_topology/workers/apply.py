@@ -7,6 +7,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from collections import defaultdict
 
 from knowledge_topology.ids import new_id
 from knowledge_topology.ids import is_valid_id
@@ -245,9 +246,13 @@ def apply_mutation(
         "canonical_rev": pack.base_canonical_rev,
     }
     prepared_writes = list(writes)
+    records_by_path: dict[Path, list[dict[str, Any]]] = defaultdict(list)
     for path, record in registry_records:
+        records_by_path[path].append(record)
+    for path, records in records_by_path.items():
         existing = path.read_text(encoding="utf-8") if path.exists() else ""
-        prepared_writes.append((path, existing + json.dumps(record, sort_keys=True) + "\n"))
+        appended = "".join(json.dumps(record, sort_keys=True) + "\n" for record in records)
+        prepared_writes.append((path, existing + appended))
     prepared_writes.append((event_path, json.dumps(event_payload, indent=2, sort_keys=True) + "\n"))
 
     applied_dir = paths.ensure_dir("mutations/applied")
