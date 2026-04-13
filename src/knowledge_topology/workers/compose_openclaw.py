@@ -398,6 +398,7 @@ def wiki_page(record: dict[str, Any], meta: dict[str, Any]) -> str:
         "READ ONLY: This page is derived from Knowledge Topology. Do not edit it as canonical memory.",
         "",
     ]
+    lines.extend(["## Record Metadata", "", f"- type: {record.get('type', '')}", f"- authority: {record.get('authority', '')}", ""])
     lines.extend(["## Source IDs", "", json.dumps(record.get("source_ids", [])), ""])
     return "\n".join(lines)
 

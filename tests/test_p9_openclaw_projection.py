@@ -174,6 +174,8 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             self.assertEqual([page["path"] for page in manifest["pages"]], [f"pages/{record_id}.md" for record_id in sorted([runtime_observation["id"], visible["id"]])])
             page_text = (projection / "wiki-mirror/pages" / f"{visible['id']}.md").read_text(encoding="utf-8")
             self.assertIn("READ ONLY", page_text)
+            self.assertIn("- type: decision", page_text)
+            self.assertIn("- authority: fitz_curated", page_text)
             self.assertNotIn("unsafe_raw_text", page_text)
             self.assertNotIn("Use runtime projection", page_text)
             prompt = (projection / "memory-prompt.md").read_text(encoding="utf-8")
