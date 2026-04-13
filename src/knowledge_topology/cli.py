@@ -8,9 +8,11 @@ from pathlib import Path
 from knowledge_topology.schema.source_packet import SourcePacketError
 from knowledge_topology.adapters.digest_model import JsonFileDigestAdapter
 from knowledge_topology.schema.digest import DigestError
+from knowledge_topology.schema.mutation_pack import MutationPackError
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
 from knowledge_topology.workers.fetch import FetchError, ingest_source
 from knowledge_topology.workers.init import init_topology
+from knowledge_topology.workers.reconcile import ReconcileError, reconcile_digest
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,6 +39,14 @@ def build_parser() -> argparse.ArgumentParser:
     digest_parser.add_argument("--root", default=".", help="topology root")
     digest_parser.add_argument("--source-id", required=True, help="source packet ID")
     digest_parser.add_argument("--model-output", required=True, help="path to model-produced digest JSON")
+
+    reconcile_parser = subparsers.add_parser("reconcile", help="create a mutation proposal from digest JSON")
+    reconcile_parser.add_argument("--root", default=".", help="topology root")
+    reconcile_parser.add_argument("--digest-json", required=True, help="validated digest JSON path")
+    reconcile_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    reconcile_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+    reconcile_parser.add_argument("--base-canonical-rev", required=True, help="base canonical revision")
+    reconcile_parser.add_argument("--proposed-by", default="reconciler", help="proposal author")
 
     return parser
 
@@ -80,6 +90,20 @@ def main(argv: list[str] | None = None) -> int:
             parser.exit(2, f"topology digest: {exc}\n")
         print(f"created digest json: {json_path}")
         print(f"created digest markdown: {md_path}")
+        return 0
+    if args.command == "reconcile":
+        try:
+            mutation_path = reconcile_digest(
+                Path(args.root).expanduser().resolve(),
+                digest_json=args.digest_json,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+                base_canonical_rev=args.base_canonical_rev,
+                proposed_by=args.proposed_by,
+            )
+        except (DigestError, MutationPackError, ReconcileError, ValueError) as exc:
+            parser.exit(2, f"topology reconcile: {exc}\n")
+        print(f"created mutation pack: {mutation_path}")
         return 0
     parser.print_help()
     return 0
