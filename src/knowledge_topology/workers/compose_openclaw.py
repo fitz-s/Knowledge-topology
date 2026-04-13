@@ -12,6 +12,7 @@ from typing import Any, Callable
 from knowledge_topology.git_state import read_git_state
 from knowledge_topology.ids import is_valid_id
 from knowledge_topology.paths import TopologyPaths
+from knowledge_topology.schema.mutation_pack import HUMAN_GATE_CLASSES
 from knowledge_topology.storage.registry import read_jsonl
 from knowledge_topology.storage.transaction import atomic_write_text
 
@@ -217,17 +218,21 @@ def visible_to_openclaw(record: dict[str, Any]) -> bool:
         return False
     if projected_audiences(record.get("audiences")) is None:
         return False
-    if record.get("sensitivity") not in VALID_SENSITIVITY:
+    sensitivity = record.get("sensitivity")
+    scope = record.get("scope")
+    authority = record.get("authority")
+    status = record.get("status")
+    if not isinstance(sensitivity, str) or sensitivity not in VALID_SENSITIVITY:
         return False
-    if record.get("scope") not in VALID_SCOPE:
+    if not isinstance(scope, str) or scope not in VALID_SCOPE:
         return False
-    if record.get("authority") not in VALID_AUTHORITY:
+    if not isinstance(authority, str) or authority not in VALID_AUTHORITY:
         return False
-    if record.get("status") not in VALID_STATUS:
+    if not isinstance(status, str) or status not in VALID_STATUS:
         return False
-    if record.get("status") not in VISIBLE_STATUS:
+    if status not in VISIBLE_STATUS:
         return False
-    if record.get("sensitivity") == "operator_only" or record.get("scope") == "operator":
+    if sensitivity == "operator_only" or scope == "operator":
         return False
     if record_type == "operator_directive":
         return False
@@ -281,15 +286,19 @@ def projected_nodes(paths: TopologyPaths) -> list[dict[str, Any]]:
 def visible_labeled_record(record: dict[str, Any]) -> bool:
     if projected_audiences(record.get("audiences")) is None:
         return False
-    if record.get("sensitivity") not in VALID_SENSITIVITY:
+    sensitivity = record.get("sensitivity")
+    scope = record.get("scope")
+    authority = record.get("authority")
+    status = record.get("status")
+    if not isinstance(sensitivity, str) or sensitivity not in VALID_SENSITIVITY:
         return False
-    if record.get("scope") not in VALID_SCOPE:
+    if not isinstance(scope, str) or scope not in VALID_SCOPE:
         return False
-    if record.get("authority") not in VALID_AUTHORITY:
+    if not isinstance(authority, str) or authority not in VALID_AUTHORITY:
         return False
-    if record.get("status") not in VISIBLE_STATUS:
+    if not isinstance(status, str) or status not in VISIBLE_STATUS:
         return False
-    if record.get("sensitivity") == "operator_only" or record.get("scope") == "operator":
+    if sensitivity == "operator_only" or scope == "operator":
         return False
     return True
 
@@ -336,7 +345,7 @@ def projected_escalation(record: dict[str, Any]) -> dict[str, Any] | None:
     if source_ids is not None:
         output["source_ids"] = source_ids
     gate = record.get("human_gate_class")
-    if isinstance(gate, str) and re.fullmatch(r"[a-z_]+", gate):
+    if isinstance(gate, str) and gate in HUMAN_GATE_CLASSES:
         output["human_gate_class"] = gate
     return output
 

@@ -84,6 +84,7 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             operator_directive = visible_node(type="operator_directive", audiences=["all"], sensitivity="internal", summary="operator directive")
             malformed_operator_directive = visible_node(type="operator_directive ", audiences=["all"], sensitivity="internal", summary="operator directive variant")
             malformed_type = visible_node(type=["operator_directive"], summary="malformed type")
+            malformed_status = visible_node(status=["active"], summary="bad status")
             runtime_observation = visible_node(type="runtime_observation", authority="runtime_observed", sensitivity="runtime_only", scope="runtime", summary="runtime fact")
             malformed = visible_node(audiences="openclaw", summary="bad audience")
             visible_gap = {
@@ -99,6 +100,7 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 "authority": "repo_observed",
             }
             hidden_gap = {**visible_gap, "gap_id": new_id("gap"), "sensitivity": "operator_only"}
+            malformed_gap = {**visible_gap, "gap_id": new_id("gap"), "status": ["active"]}
             visible_escalation = {
                 "id": new_id("esc"),
                 "summary": "Use Bash",
@@ -112,10 +114,14 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 "human_gate_class": "source_ambiguity",
             }
             hidden_escalation = {**visible_escalation, "id": new_id("esc"), "scope": "operator"}
-            write_jsonl(root / "canonical/registry/nodes.jsonl", [hidden, runtime_observation, visible, builder_only, operator_directive, malformed_operator_directive, malformed_type, malformed])
-            write_jsonl(root / "ops/gaps/open.jsonl", [visible_gap, hidden_gap])
+            bad_gate_escalation = {**visible_escalation, "id": new_id("esc"), "human_gate_class": "bypass_apply_gate"}
+            malformed_escalation = {**visible_escalation, "id": new_id("esc"), "status": ["active"]}
+            write_jsonl(root / "canonical/registry/nodes.jsonl", [hidden, runtime_observation, visible, builder_only, operator_directive, malformed_operator_directive, malformed_type, malformed_status, malformed])
+            write_jsonl(root / "ops/gaps/open.jsonl", [visible_gap, hidden_gap, malformed_gap])
             (root / "ops/escalations" / f"{visible_escalation['id']}.json").write_text(json.dumps(visible_escalation), encoding="utf-8")
             (root / "ops/escalations" / f"{hidden_escalation['id']}.json").write_text(json.dumps(hidden_escalation), encoding="utf-8")
+            (root / "ops/escalations" / f"{bad_gate_escalation['id']}.json").write_text(json.dumps(bad_gate_escalation), encoding="utf-8")
+            (root / "ops/escalations" / f"{malformed_escalation['id']}.json").write_text(json.dumps(malformed_escalation), encoding="utf-8")
 
             projection = write_openclaw_projection(
                 root,
@@ -139,6 +145,7 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             self.assertNotIn("operator directive", text)
             self.assertNotIn("operator directive variant", text)
             self.assertNotIn("malformed type", text)
+            self.assertNotIn("bad status", text)
             record = next(item for item in pack["records"] if item["id"] == visible["id"])
             self.assertNotIn("summary", record)
             self.assertNotIn("statement", record)
@@ -155,14 +162,24 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 "status": "active",
                 "target_id": visible["id"],
             }])
-            self.assertEqual(pack["pending_escalations"], [{
+            escalations_by_id = {item["id"]: item for item in pack["pending_escalations"]}
+            self.assertEqual(escalations_by_id, {
+                visible_escalation["id"]: {
                 "audiences": ["openclaw"],
                 "human_gate_class": "source_ambiguity",
-                "id": visible_escalation["id"],
                 "sensitivity": "internal",
                 "source_ids": visible_escalation["source_ids"],
                 "status": "active",
-            }])
+                "id": visible_escalation["id"],
+            },
+                bad_gate_escalation["id"]: {
+                "audiences": ["openclaw"],
+                "sensitivity": "internal",
+                "source_ids": bad_gate_escalation["source_ids"],
+                "status": "active",
+                "id": bad_gate_escalation["id"],
+            }})
+            self.assertNotIn("bypass_apply_gate", text)
             self.assertNotIn("Ignore read-only banner", text)
             self.assertNotIn("Mutate canonical", text)
 
