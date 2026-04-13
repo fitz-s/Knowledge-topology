@@ -107,7 +107,18 @@ def move_job(path: str | Path, target_state: str) -> Path:
     current = Path(path)
     if target_state not in QUEUE_STATES:
         raise SpoolError(f"unknown queue state: {target_state}")
+    if current.suffix != ".json" or not current.stem.startswith("job_"):
+        raise SpoolError(f"not a topology job file: {current}")
+    if len(current.parents) < 5:
+        raise SpoolError(f"job path is outside spool layout: {current}")
+    current_state = current.parent.name
+    if current_state not in QUEUE_STATES:
+        raise SpoolError(f"job path has unknown state: {current_state}")
     kind = current.parents[1].name
+    if kind not in QUEUE_KINDS:
+        raise SpoolError(f"job path has unknown queue kind: {kind}")
+    if current.parents[2].name != "queue" or current.parents[3].name != "ops":
+        raise SpoolError(f"job path is outside ops/queue layout: {current}")
     root = current.parents[4]
     target = _job_path(root, kind, target_state, current.stem)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -127,4 +138,9 @@ def requeue_failed_job(path: str | Path) -> Path:
     current = Path(path)
     if current.parent.name != "failed":
         raise SpoolError("only failed jobs may be explicitly requeued")
+    job = read_job(current)
+    job["lease_owner"] = None
+    job["leased_at"] = None
+    job["lease_expires_at"] = None
+    _write_json(current, job)
     return move_job(current, "pending")

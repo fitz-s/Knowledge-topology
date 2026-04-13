@@ -14,7 +14,7 @@ from knowledge_topology.git_state import read_git_state
 from knowledge_topology.ids import is_valid_id, new_id
 from knowledge_topology.paths import PathSafetyError, TopologyPaths
 from knowledge_topology.schema.loader import SchemaLoadError, load_json, require_fields
-from knowledge_topology.storage.spool import complete_job, create_job, fail_job, lease_next, read_job, requeue_failed_job
+from knowledge_topology.storage.spool import SpoolError, complete_job, create_job, fail_job, lease_next, read_job, requeue_failed_job
 from knowledge_topology.storage.transaction import atomic_writer, atomic_write_text
 from knowledge_topology.workers.init import init_topology
 
@@ -124,6 +124,13 @@ class P1EngineSkeletonTests(unittest.TestCase):
             self.assertEqual(requeued.parent.name, "pending")
             self.assertEqual(requeued.name, pending2.name)
             self.assertTrue(requeued.exists())
+            requeued_job = read_job(requeued)
+            self.assertIsNone(requeued_job["lease_owner"])
+            self.assertIsNone(requeued_job["leased_at"])
+            self.assertIsNone(requeued_job["lease_expires_at"])
+
+            with self.assertRaises(SpoolError):
+                complete_job(Path(tmp) / "job_not_in_queue.json")
 
     def test_cli_help_and_init(self):
         with tempfile.TemporaryDirectory() as tmp:
