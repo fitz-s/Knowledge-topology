@@ -379,7 +379,7 @@ not auto-promote to active canonical truth.
 All business logic goes through one Python package and CLI. Integrations are
 thin facades.
 
-Initial CLI commands:
+P0-P9 shipped CLI commands:
 
 - `topology init`
 - `topology ingest`
@@ -392,15 +392,18 @@ Initial CLI commands:
 - `topology lint`
 - `topology doctor`
 
-Doctor subcommands:
+P0-P9 shipped doctor subcommands:
+
+- `topology doctor stale-anchors`: find file refs whose subject head moved.
+
+Deferred doctor subcommands:
 
 - `topology doctor queues`: expire leases and requeue abandoned jobs.
-- `topology doctor stale-anchors`: find file refs whose subject head moved.
 - `topology doctor public-safe`: find tracked unsafe raw content.
 - `topology doctor projections`: find stale or leaking projections.
 - `topology doctor canonical-parity`: compare node pages and registries.
 
-Subject commands are part of the Batch 1 command surface:
+Deferred subject commands:
 
 - `topology subject add`
 - `topology subject refresh`
@@ -417,7 +420,8 @@ Codex:
 - `AGENTS.md` stays thin and route-oriented.
 - `.agents/skills/topology-consume/`
 - `.agents/skills/topology-writeback/`
-- `.codex/config.toml` registers topology MCP after CLI contracts stabilize.
+- `.codex/config.toml` topology MCP registration is deferred until a tested MCP
+  server exists.
 - Codex consumes task packs, not whole topology.
 
 Claude Code:
@@ -425,17 +429,23 @@ Claude Code:
 - `CLAUDE.md` stays thin and route-oriented.
 - `.claude/skills/topology-consume/`
 - `.claude/skills/topology-writeback/`
-- `.claude/settings.json` hooks block direct canonical writes and trigger
-  changed-file lint/writeback.
+- `.claude/settings.json` blocks direct `Write` / `Edit` / `MultiEdit`
+  canonical writes through a tested guard.
+- Claude changed-file lint/writeback hooks are deferred.
 - Claude consumes task packs plus skills, not whole topology.
 
 OpenClaw:
 
 - `KNOWLEDGE_TOPOLOGY_ROOT` points at this external repo.
-- OpenClaw writes allowed source, mutation, ops, queue, and projection surfaces.
-- Runtime projection exports `runtime-pack.md/json`, `memory-prompt.md`, and
-  `wiki-mirror/`.
-- Memory-wiki consumes the mirror; it does not own authority.
+- P9 ships a structured-only local runtime projection under
+  `projections/openclaw/`.
+- P9 runtime records exclude natural-language `summary` / `statement`, `tags`,
+  and `file_refs`.
+- Live OpenClaw adapter/workspace writes, external-write queue leases,
+  memory-wiki/QMD import or live validation, OpenClaw natural-language runtime
+  sanitizer, and OpenClaw file-ref projection with subject-file index are
+  deferred.
+- Memory-wiki may consume a derived mirror later; it does not own authority.
 
 ## 13. Maintenance Invariants
 

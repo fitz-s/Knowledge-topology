@@ -25,3 +25,5 @@ and future worker jobs.
 - `SCHEMA_EVOLUTION.md`: versioning and migration policy.
 - `COMPILE.md`: deterministic projection and traversal policy.
 - `PACKAGE_GATES.md`: package review, critic, Gemini, and unfreeze gate policy.
+- `docs/MAINLINE_STATUS.md`: P0-P9 mainline completion status and deferred
+  work inventory.
