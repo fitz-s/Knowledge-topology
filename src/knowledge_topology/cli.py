@@ -13,6 +13,7 @@ from knowledge_topology.schema.mutation_pack import MutationPackError
 from knowledge_topology.workers.agent_guard import guard_claude_pre_tool_use
 from knowledge_topology.workers.apply import ApplyError, apply_mutation
 from knowledge_topology.workers.compose_builder import ComposeError, write_builder_pack
+from knowledge_topology.workers.compose_openclaw import OpenClawComposeError, write_openclaw_projection
 from knowledge_topology.workers.doctor import stale_anchors
 from knowledge_topology.workers.lint import run_lints
 from knowledge_topology.workers.writeback import WritebackError, writeback_session
@@ -74,6 +75,14 @@ def build_parser() -> argparse.ArgumentParser:
     builder_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
     builder_parser.add_argument("--subject-path", help="optional local subject repo path for dirty checks")
     builder_parser.add_argument("--allow-dirty", action="store_true", help="allow dirty topology repo for fixture/test use")
+    openclaw_parser = compose_subparsers.add_parser("openclaw", help="compose an OpenClaw runtime projection")
+    openclaw_parser.add_argument("--root", default=".", help="topology root")
+    openclaw_parser.add_argument("--project-id", required=True, help="OpenClaw runtime project id")
+    openclaw_parser.add_argument("--canonical-rev", required=True, help="canonical revision")
+    openclaw_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    openclaw_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+    openclaw_parser.add_argument("--subject-path", help="optional local subject repo path for dirty/head checks")
+    openclaw_parser.add_argument("--allow-dirty", action="store_true", help="allow dirty repos for fixture/test use")
 
     lint_parser = subparsers.add_parser("lint", help="run deterministic topology lints")
     lint_parser.add_argument("--root", default=".", help="topology root")
@@ -186,6 +195,21 @@ def main(argv: list[str] | None = None) -> int:
         except (ComposeError, ValueError) as exc:
             parser.exit(2, f"topology compose builder: {exc}\n")
         print(f"created builder pack: {pack_dir}")
+        return 0
+    if args.command == "compose" and args.compose_command == "openclaw":
+        try:
+            projection_dir = write_openclaw_projection(
+                Path(args.root).expanduser().resolve(),
+                project_id=args.project_id,
+                canonical_rev=args.canonical_rev,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+                subject_path=args.subject_path,
+                allow_dirty=args.allow_dirty,
+            )
+        except (OpenClawComposeError, ValueError) as exc:
+            parser.exit(2, f"topology compose openclaw: {exc}\n")
+        print(f"created OpenClaw projection: {projection_dir}")
         return 0
     if args.command == "lint":
         result = run_lints(Path(args.root).expanduser().resolve())
