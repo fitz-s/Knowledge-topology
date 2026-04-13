@@ -923,6 +923,42 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                         clock=lambda: FIXED_TIME,
                     )
 
+    def test_openclaw_rejects_symlinked_input_surfaces(self):
+        cases = [
+            ("canonical/registry/nodes.jsonl", "nodes registry is invalid"),
+            ("ops/gaps/open.jsonl", "open gaps registry is invalid"),
+            ("ops/escalations", "escalation input directory is invalid"),
+        ]
+        for relative, message in cases:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                init_topology(root)
+                local_blobs = root / "raw/local_blobs"
+                if relative == "ops/escalations":
+                    target_payload = local_blobs / "escdir"
+                    target_payload.mkdir()
+                    target = root / relative
+                    shutil.rmtree(target)
+                    target.symlink_to(target_payload, target_is_directory=True)
+                else:
+                    target_payload = local_blobs / "evil.jsonl"
+                    target_payload.write_text("", encoding="utf-8")
+                    target = root / relative
+                    if target.exists():
+                        target.unlink()
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.symlink_to(target_payload)
+                with self.assertRaisesRegex(ValueError, message):
+                    write_openclaw_projection(
+                        root,
+                        project_id="openclaw_project",
+                        canonical_rev="rev_current",
+                        subject_repo_id="repo_knowledge_topology",
+                        subject_head_sha="abc123",
+                        allow_dirty=True,
+                        clock=lambda: FIXED_TIME,
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

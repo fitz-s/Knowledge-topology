@@ -187,7 +187,7 @@ def projected_audiences(value: Any) -> list[str] | None:
 
 
 def safe_read_jsonl(paths: TopologyPaths, relative: str, label: str) -> list[dict[str, Any]]:
-    path = paths.resolve(relative)
+    path = paths.root / relative
     if path.is_symlink() or (path.exists() and not path.is_file()):
         raise OpenClawComposeError(f"{label} registry is invalid: input must be a regular file")
     try:
@@ -372,7 +372,10 @@ def projected_gaps(paths: TopologyPaths, visible_node_ids: set[str]) -> list[dic
 
 def projected_escalations(paths: TopologyPaths) -> list[dict[str, Any]]:
     escalations = []
-    for path in sorted(paths.resolve("ops/escalations").glob("*.json")):
+    directory = paths.root / "ops/escalations"
+    if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
+        raise OpenClawComposeError("escalation input directory is invalid: input must be a regular directory")
+    for path in sorted(directory.glob("*.json")):
         if path.is_symlink() or not path.is_file():
             raise OpenClawComposeError(f"escalation input must be a regular file: {path}")
         try:
