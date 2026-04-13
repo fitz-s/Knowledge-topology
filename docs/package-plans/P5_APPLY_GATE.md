@@ -22,7 +22,7 @@ only writer for canonical pages and registries.
 | --- | --- | --- | --- | --- | --- |
 | P5.1 Apply schema revalidation | Revalidate mutation pack and preconditions | `workers/apply.py` | stale/malformed mutation fixtures | stale and bad packs reject before writes | apply trusts P4 output blindly |
 | P5.2 Evidence resolution | Check `evidence_refs` exist | apply worker | missing evidence tests | missing source/digest refs reject | evidence location ambiguous |
-| P5.3 Canonical writes | Write node/claim/edge/gap pages and registries | apply worker | page/registry fixtures | page and registry overlap match | parity cannot be checked |
+| P5.3 Canonical writes | Write node/claim/edge pages and tracked gap pages/registries | apply worker | page/registry fixtures | page and registry overlap match | parity cannot be checked |
 | P5.4 Human gates | Require approval for human-gated packs | apply worker | gate tests | unapproved gates reject | destructive edge bypasses gate |
 | P5.5 Audit and mutation movement | Move pending to applied and write semantic event | apply worker | event/move tests | only after successful apply | partial move on failure |
 | P5.6 CLI apply | Add `topology apply` | `cli.py` | CLI smoke | applies fixture mutation | CLI accepts dirty/stale inputs silently |
@@ -41,7 +41,8 @@ Required before unfreeze because P5 defines canonical write mechanics.
 - `topology apply` applies a pending mutation pack only when preconditions and
   evidence refs pass.
 - unapproved human-gated mutation packs are rejected.
-- applied claim/edge/gap/node records are written to canonical registries.
+- applied claim/edge/node records are written to canonical registries.
+- applied gap records are written to tracked `ops/gaps/` surfaces.
 - canonical pages and registry records are written together.
 - mutation pack moves from pending to applied after success.
 - semantic audit event is written under `ops/events/<yyyy>/<mm>/<dd>/`.

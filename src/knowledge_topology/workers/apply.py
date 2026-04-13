@@ -15,6 +15,7 @@ from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.schema.mutation_pack import MutationPack, MutationPackError
 from knowledge_topology.schema.loader import load_json
 from knowledge_topology.storage.registry import read_jsonl
+from knowledge_topology.storage.registry import Registry
 from knowledge_topology.storage.transaction import atomic_write_text
 
 
@@ -82,6 +83,8 @@ def page_path(paths: TopologyPaths, change: dict[str, Any]) -> Path | None:
         return paths.resolve(f"canonical/nodes/claim/{change['claim_id']}.md")
     if op == "add_edge":
         return paths.resolve(f"canonical/nodes/artifact/{change['edge_id']}.md")
+    if op == "open_gap":
+        return paths.resolve(f"ops/gaps/{change['gap_id']}.md")
     if op == "propose_node":
         return paths.resolve(f"canonical/nodes/artifact/{change['node_id']}.md")
     return None
@@ -184,6 +187,15 @@ def preflight_writes(writes: list[tuple[Path, str]], registry_records: list[tupl
             ids_by_registry[path].add(record_id)
 
 
+def check_edge_targets(paths: TopologyPaths, pack: MutationPack) -> None:
+    known_nodes = Registry(paths.root).known_node_ids()
+    proposed_nodes = {change["node_id"] for change in pack.changes if change["op"] == "propose_node"}
+    allowed = known_nodes | proposed_nodes
+    for change in pack.changes:
+        if change["op"] == "add_edge" and change["to_id"] not in allowed:
+            raise ApplyError(f"add_edge target node does not exist: {change['to_id']}")
+
+
 def apply_writes_with_rollback(writes: list[tuple[Path, str]], mutation: Path, applied_path: Path) -> None:
     snapshots: list[tuple[Path, bytes | None]] = []
     try:
@@ -221,6 +233,7 @@ def apply_mutation(
     if requires_human_gate(pack) and not approve_human:
         raise ApplyError("human-gated mutation requires approval")
     check_evidence(paths, evidence_refs_for_changes(pack))
+    check_edge_targets(paths, pack)
 
     writes: list[tuple[Path, str]] = []
     registry_records: list[tuple[Path, dict[str, Any]]] = []

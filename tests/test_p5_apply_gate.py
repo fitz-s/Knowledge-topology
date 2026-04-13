@@ -124,6 +124,62 @@ class P5ApplyGateTests(unittest.TestCase):
             self.assertEqual(len(list((root / "canonical/nodes/claim").glob("*.md"))), 2)
             self.assertTrue(list((root / "canonical/nodes/artifact").glob("*.md")))
 
+    def test_add_edge_target_must_exist_or_be_proposed_in_same_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = new_id("nd")
+            mutation = self.make_pending_mutation(root)
+            payload = json.loads(mutation.read_text(encoding="utf-8"))
+            payload["changes"].append({
+                "op": "add_edge",
+                "edge_id": new_id("edg"),
+                "from_id": payload["evidence_refs"][1],
+                "to_id": target,
+                "edge_type": "SUPPORTS",
+                "confidence": "high",
+                "note": "forged edge",
+                "basis_digest_id": payload["evidence_refs"][0],
+            })
+            mutation.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ApplyError):
+                apply_mutation(
+                    root,
+                    mutation,
+                    current_canonical_rev="rev_current",
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                )
+            payload["changes"].append({
+                "op": "propose_node",
+                "node_id": target,
+                "reason": "same pack target",
+                "source_id": payload["evidence_refs"][1],
+                "digest_id": payload["evidence_refs"][0],
+            })
+            mutation.write_text(json.dumps(payload), encoding="utf-8")
+            applied, _ = apply_mutation(
+                root,
+                mutation,
+                current_canonical_rev="rev_current",
+                subject_repo_id="repo_knowledge_topology",
+                subject_head_sha="abc123",
+            )
+            self.assertEqual(applied.parent.name, "applied")
+
+    def test_open_gap_writes_tracked_gap_page_and_registry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mutation = self.make_pending_mutation(root, target_id=new_id("nd"), confidence="low")
+            apply_mutation(
+                root,
+                mutation,
+                current_canonical_rev="rev_current",
+                subject_repo_id="repo_knowledge_topology",
+                subject_head_sha="abc123",
+            )
+            self.assertTrue((root / "ops/gaps/open.jsonl").read_text(encoding="utf-8").strip())
+            self.assertTrue(list((root / "ops/gaps").glob("gap_*.md")))
+
     def test_stale_precondition_rejects_before_writes_or_move(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
