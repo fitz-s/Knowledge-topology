@@ -6,6 +6,9 @@ import argparse
 from pathlib import Path
 
 from knowledge_topology.schema.source_packet import SourcePacketError
+from knowledge_topology.adapters.digest_model import JsonFileDigestAdapter
+from knowledge_topology.schema.digest import DigestError
+from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
 from knowledge_topology.workers.fetch import FetchError, ingest_source
 from knowledge_topology.workers.init import init_topology
 
@@ -29,6 +32,11 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--redistributable", choices=["yes", "no", "unknown"], default="unknown")
     ingest_parser.add_argument("--content-mode", choices=["public_text", "excerpt_only", "local_blob"])
     ingest_parser.add_argument("--source-type", choices=["local_draft", "github_artifact", "article_html", "pdf_arxiv"])
+
+    digest_parser = subparsers.add_parser("digest", help="validate and write digest artifacts")
+    digest_parser.add_argument("--root", default=".", help="topology root")
+    digest_parser.add_argument("--source-id", required=True, help="source packet ID")
+    digest_parser.add_argument("--model-output", required=True, help="path to model-produced digest JSON")
 
     return parser
 
@@ -60,6 +68,18 @@ def main(argv: list[str] | None = None) -> int:
             parser.exit(2, f"topology ingest: {exc}\n")
         print(f"created source packet: {result.packet_path}")
         print(f"enqueued digest job: {result.digest_job_path}")
+        return 0
+    if args.command == "digest":
+        try:
+            json_path, md_path = write_digest_artifacts(
+                Path(args.root).expanduser().resolve(),
+                source_id=args.source_id,
+                model_adapter=JsonFileDigestAdapter(args.model_output),
+            )
+        except (DigestError, DigestWorkerError, ValueError) as exc:
+            parser.exit(2, f"topology digest: {exc}\n")
+        print(f"created digest json: {json_path}")
+        print(f"created digest markdown: {md_path}")
         return 0
     parser.print_help()
     return 0
