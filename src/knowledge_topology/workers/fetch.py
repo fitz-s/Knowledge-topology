@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from knowledge_topology.ids import new_id
 from knowledge_topology.paths import TopologyPaths
-from knowledge_topology.schema.source_packet import FetchChainEntry, SourceArtifact, SourcePacket
+from knowledge_topology.schema.source_packet import FetchChainEntry, SourceArtifact, LocalBlobRef, SourcePacket
 from knowledge_topology.storage.spool import create_job
 from knowledge_topology.storage.transaction import atomic_write_text
 
@@ -97,6 +97,8 @@ def build_source_packet(
         path = Path(value).expanduser()
         if not path.exists() or not path.is_file():
             raise FetchError(f"local draft not found: {value}")
+        if mode == "local_blob":
+            raise FetchError("local_draft does not support local_blob mode in P2")
         text = path.read_text(encoding="utf-8")
         hash_original = sha256_text(text)
         if mode == "public_text":
@@ -113,7 +115,12 @@ def build_source_packet(
     elif resolved_type == "pdf_arxiv":
         artifacts.append(SourceArtifact(kind="manifest", note="PDF/arXiv fetch deferred; store safe metadata only").to_dict())
         if mode == "local_blob":
-            artifacts.append(SourceArtifact(kind="local_blob_ref", note="Full binary content must stay outside Git").to_dict())
+            blob_ref = LocalBlobRef(hash_sha256=sha256_text(value), storage_hint=f"raw/local_blobs/{packet_id}").to_dict()
+            artifacts.append({
+                "kind": "local_blob_ref",
+                **blob_ref,
+                "note": "Locator hash only; full binary content is not fetched in P2 and must stay outside Git.",
+            })
     elif resolved_type == "github_artifact":
         artifacts.append(SourceArtifact(kind="manifest", note="GitHub artifact must be pinned by commit/ref before authority use").to_dict())
     else:
@@ -157,13 +164,24 @@ def ingest_source(
     source_type: str | None = None,
 ) -> IngestResult:
     paths = TopologyPaths.from_root(root)
+    resolved_type = classify_source(value, source_type)
+    if resolved_type == "local_draft":
+        local_path = Path(value).expanduser()
+        if not local_path.is_absolute():
+            local_path = paths.root / local_path
+        resolved_local = local_path.resolve()
+        if resolved_local != paths.root and paths.root not in resolved_local.parents:
+            raise FetchError("local draft path must resolve inside the topology root")
+        if ".topology" in resolved_local.parts:
+            raise FetchError("local draft path must not resolve through .topology")
+        value = str(resolved_local)
     packet, files = build_source_packet(
         value,
         note=note,
         depth=depth,
         redistributable=redistributable,
         content_mode=content_mode,
-        source_type=source_type,
+        source_type=resolved_type,
     )
     packet_dir = paths.ensure_dir(f"raw/packets/{packet.id}")
     for relative, text in files.items():

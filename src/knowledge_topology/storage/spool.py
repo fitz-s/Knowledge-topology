@@ -59,6 +59,12 @@ def create_job(
     created_by: str,
 ) -> Path:
     ensure_spool(root, kind)
+    if not subject_repo_id:
+        raise SpoolError("subject_repo_id is required")
+    if not subject_head_sha:
+        raise SpoolError("subject_head_sha is required")
+    if not base_canonical_rev:
+        raise SpoolError("base_canonical_rev is required")
     job_id = new_id("job")
     now = isoformat(utc_now())
     job = {

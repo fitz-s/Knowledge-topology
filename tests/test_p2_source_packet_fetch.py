@@ -12,7 +12,7 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from knowledge_topology.schema.source_packet import SourcePacketError
-from knowledge_topology.storage.spool import read_job
+from knowledge_topology.storage.spool import SpoolError, read_job
 from knowledge_topology.workers.fetch import build_source_packet, classify_source, ingest_source
 from knowledge_topology.workers.init import init_topology
 
@@ -50,6 +50,34 @@ class P2SourcePacketFetchTests(unittest.TestCase):
         finally:
             Path(path).unlink(missing_ok=True)
 
+    def test_source_packet_rejects_empty_required_fields(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
+            handle.write("local note")
+            path = handle.name
+        try:
+            packet, _ = build_source_packet(
+                path,
+                note="test note",
+                depth="standard",
+                redistributable="yes",
+            )
+            bad = {
+                **packet.to_dict(),
+                "retrieved_at": "",
+            }
+            from knowledge_topology.schema.source_packet import SourcePacket
+
+            with self.assertRaises(SourcePacketError):
+                SourcePacket(**bad).validate()
+            bad_authority = {
+                **packet.to_dict(),
+                "authority": "",
+            }
+            with self.assertRaises(SourcePacketError):
+                SourcePacket(**bad_authority).validate()
+        finally:
+            Path(path).unlink(missing_ok=True)
+
     def test_local_draft_ingest_writes_packet_and_digest_job(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -77,6 +105,63 @@ class P2SourcePacketFetchTests(unittest.TestCase):
             self.assertEqual(job["subject_repo_id"], "repo_knowledge_topology")
             self.assertEqual(job["subject_head_sha"], "abc123")
             self.assertEqual(job["base_canonical_rev"], "rev_current")
+
+    def test_local_draft_rejects_symlink_escape_and_local_blob(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            outside = Path(tempfile.mkdtemp()) / "outside.md"
+            outside.write_text("outside private text\n", encoding="utf-8")
+            symlink = root / "draft-link.md"
+            symlink.symlink_to(outside)
+            with self.assertRaises(Exception) as symlink_error:
+                ingest_source(
+                    root,
+                    str(symlink),
+                    note="symlink",
+                    depth="standard",
+                    audience="builders",
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                    base_canonical_rev="rev_current",
+                    redistributable="yes",
+                )
+            self.assertIn("inside the topology root", str(symlink_error.exception))
+
+            draft = root / "draft.md"
+            draft.write_text("local note", encoding="utf-8")
+            with self.assertRaises(Exception) as blob_error:
+                ingest_source(
+                    root,
+                    str(draft),
+                    note="local blob",
+                    depth="standard",
+                    audience="builders",
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                    base_canonical_rev="rev_current",
+                    content_mode="local_blob",
+                )
+            self.assertIn("local_draft does not support local_blob", str(blob_error.exception))
+
+    def test_digest_job_preconditions_are_required(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            draft = root / "draft.md"
+            draft.write_text("local note", encoding="utf-8")
+            with self.assertRaises(SpoolError):
+                ingest_source(
+                    root,
+                    str(draft),
+                    note="missing preconditions",
+                    depth="standard",
+                    audience="builders",
+                    subject_repo_id="",
+                    subject_head_sha="",
+                    base_canonical_rev="",
+                    redistributable="yes",
+                )
 
     def test_external_sources_default_to_excerpt_only_partial_packets(self):
         cases = [
@@ -121,6 +206,10 @@ class P2SourcePacketFetchTests(unittest.TestCase):
             packet_dir = result.packet_path.parent
             packet = json.loads(result.packet_path.read_text(encoding="utf-8"))
             self.assertEqual(packet["content_mode"], "local_blob")
+            blob_refs = [artifact for artifact in packet["artifacts"] if artifact["kind"] == "local_blob_ref"]
+            self.assertEqual(len(blob_refs), 1)
+            self.assertIn("hash_sha256", blob_refs[0])
+            self.assertIn("storage_hint", blob_refs[0])
             self.assertFalse(any(path.suffix == ".pdf" for path in packet_dir.iterdir()))
 
     def test_cli_ingest_smoke_and_public_text_rejection(self):
