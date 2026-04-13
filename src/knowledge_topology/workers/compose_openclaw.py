@@ -234,6 +234,8 @@ def safe_output(openclaw_dir: Path, relative: str) -> Path:
     resolved = output.resolve()
     if resolved != output or openclaw_dir not in resolved.parents:
         raise OpenClawComposeError(f"OpenClaw projection output escaped projection root: {relative}")
+    if output.exists() and not output.is_file():
+        raise OpenClawComposeError(f"OpenClaw projection output target must be a file: {relative}")
     return output
 
 
@@ -322,6 +324,12 @@ def safe_metadata_value(value: str, field: str) -> str:
         raise OpenClawComposeError(f"{field} contains forbidden projection text")
     if any(token in compact for token in FORBIDDEN_SLUG_TOKENS):
         raise OpenClawComposeError(f"{field} contains forbidden projection text")
+    return value
+
+
+def safe_timestamp(value: str, field: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T[0-9:.-]+Z", value):
+        raise OpenClawComposeError(f"{field} must be a UTC timestamp")
     return value
 
 
@@ -542,7 +550,7 @@ def write_openclaw_projection(
     paths = TopologyPaths.from_root(root)
     require_topology_state(paths.root, canonical_rev=canonical_rev, allow_dirty=allow_dirty)
     verified = subject_verified(subject_path, subject_head_sha=subject_head_sha, allow_dirty=allow_dirty)
-    generated_at = clock()
+    generated_at = safe_timestamp(clock(), "generated_at")
     meta = metadata(
         project_id=project_id,
         canonical_rev=canonical_rev,
