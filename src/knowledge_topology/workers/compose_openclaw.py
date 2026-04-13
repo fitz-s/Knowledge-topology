@@ -238,7 +238,8 @@ def safe_text(value: Any) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     folded = value.casefold()
-    if "openclaw" in folded:
+    compact = re.sub(r"[^a-z0-9]", "", folded)
+    if "openclaw" in compact:
         return None
     if any(token in folded for token in FORBIDDEN_TEXT):
         return None
@@ -256,17 +257,19 @@ def safe_text(value: Any) -> str | None:
 def safe_anchor_path(value: Any) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
-    folded = value.casefold().replace("\\", "/")
-    if "openclaw" in folded:
+    raw = value.strip()
+    folded = raw.casefold().replace("\\", "/")
+    compact = re.sub(r"[^a-z0-9]", "", folded)
+    if "openclaw" in compact:
         return None
-    if "\\" in value or value.startswith("~") or "%" in value or re.match(r"^[A-Za-z]:[\\/]", value):
+    if "\\" in raw or raw.startswith("~") or "%" in raw or folded.startswith("file:") or re.match(r"^[A-Za-z]:[\\/]", raw):
         return None
-    path = Path(value)
+    path = Path(raw)
     if path.is_absolute() or ".." in path.parts:
         return None
     if any(part in folded for part in FORBIDDEN_ANCHOR_PATH_PARTS):
         return None
-    return value
+    return raw
 
 
 def safe_metadata_value(value: str, field: str) -> str:
