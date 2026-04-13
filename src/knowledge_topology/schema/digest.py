@@ -33,6 +33,7 @@ REQUIRED_FIDELITY_FLAGS = {
     "hidden_assumptions_extracted",
     "evidence_strength_graded",
 }
+REQUIRED_CANDIDATE_EDGE_FIELDS = {"target_id", "edge_type", "confidence", "note"}
 
 
 class DigestError(ValueError):
@@ -114,8 +115,13 @@ class Digest:
             if value not in FLAG_VALUES:
                 raise DigestError(f"invalid fidelity flag {key}: {value}")
         for edge in self.candidate_edges:
-            edge_type = edge.get("edge_type")
-            if edge_type is not None and edge_type not in EDGE_TYPES:
+            if not isinstance(edge, dict):
+                raise DigestError("candidate_edges entries must be objects")
+            missing = REQUIRED_CANDIDATE_EDGE_FIELDS - set(edge)
+            if missing:
+                raise DigestError(f"candidate edge missing fields: {', '.join(sorted(missing))}")
+            edge_type = edge["edge_type"]
+            if edge_type not in EDGE_TYPES:
                 raise DigestError(f"invalid candidate edge_type: {edge_type}")
 
     def to_dict(self) -> dict[str, Any]:

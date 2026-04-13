@@ -34,7 +34,7 @@ def valid_digest_payload(source_id: str) -> dict:
         "contested_points": [{"text": "not settled"}],
         "unresolved_ambiguity": [{"text": "unknown"}],
         "open_questions": [{"text": "what next?"}],
-        "candidate_edges": [{"target_id": "nd_01HZXAMPLE0000000000000004", "edge_type": "SUPPORTS", "confidence": "low"}],
+        "candidate_edges": [{"target_id": "nd_01HZXAMPLE0000000000000004", "edge_type": "SUPPORTS", "confidence": "low", "note": "fixture edge"}],
         "fidelity_flags": {
             "reasoning_chain_preserved": "yes",
             "boundary_conditions_preserved": "yes",
@@ -80,7 +80,10 @@ class P3DigestContractTests(unittest.TestCase):
             self.assertTrue(md_path.exists())
             digest = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(digest["source_id"], source_id)
-            self.assertIn("## Fidelity Flags", md_path.read_text(encoding="utf-8"))
+            markdown = md_path.read_text(encoding="utf-8")
+            self.assertIn("## Fidelity Flags", markdown)
+            self.assertIn("Content mode: `public_text`", markdown)
+            self.assertIn("## Source Artifacts", markdown)
             canonical_files = sorted(path.relative_to(root).as_posix() for path in (root / "canonical").rglob("*.*"))
             self.assertEqual(canonical_files, [
                 "canonical/registry/aliases.jsonl",
@@ -125,6 +128,48 @@ class P3DigestContractTests(unittest.TestCase):
             output = self.write_model_output(root, payload, "bad-edge.json")
             with self.assertRaises(DigestError):
                 write_digest_artifacts(root, source_id=source_id, model_adapter=JsonFileDigestAdapter(output))
+
+            payload = valid_digest_payload(source_id)
+            payload["candidate_edges"] = ["not-an-object"]
+            output = self.write_model_output(root, payload, "bad-edge-shape.json")
+            with self.assertRaises(DigestError):
+                write_digest_artifacts(root, source_id=source_id, model_adapter=JsonFileDigestAdapter(output))
+
+            payload = valid_digest_payload(source_id)
+            payload["candidate_edges"][0].pop("note")
+            output = self.write_model_output(root, payload, "bad-edge-missing.json")
+            with self.assertRaises(DigestError):
+                write_digest_artifacts(root, source_id=source_id, model_adapter=JsonFileDigestAdapter(output))
+
+    def test_source_packet_id_mismatch_and_duplicate_digest_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_id = self.make_source(root)
+            packet_path = root / f"raw/packets/{source_id}/packet.json"
+            packet = json.loads(packet_path.read_text(encoding="utf-8"))
+            packet["id"] = new_id("src")
+            packet_path.write_text(json.dumps(packet), encoding="utf-8")
+            output = self.write_model_output(root, valid_digest_payload(source_id))
+            from knowledge_topology.workers.digest import DigestWorkerError
+
+            with self.assertRaises(DigestWorkerError):
+                write_digest_artifacts(root, source_id=source_id, model_adapter=JsonFileDigestAdapter(output))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_id = self.make_source(root)
+            payload = valid_digest_payload(source_id)
+            output = self.write_model_output(root, payload)
+            write_digest_artifacts(root, source_id=source_id, model_adapter=JsonFileDigestAdapter(output))
+            with self.assertRaises(Exception) as error:
+                write_digest_artifacts(root, source_id=source_id, model_adapter=JsonFileDigestAdapter(output))
+            self.assertIn("already exists", str(error.exception))
+
+    def test_standard_prompt_mentions_alternative_interpretations_and_fidelity_flags(self):
+        prompt = (ROOT / "prompts/digest_standard.md").read_text(encoding="utf-8")
+        self.assertIn("alternative interpretations", prompt)
+        self.assertIn("Required fidelity flags", prompt)
+        self.assertIn("evidence_strength_graded", prompt)
 
     def test_cli_digest_smoke(self):
         with tempfile.TemporaryDirectory() as tmp:

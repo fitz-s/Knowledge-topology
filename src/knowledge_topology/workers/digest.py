@@ -10,6 +10,7 @@ from knowledge_topology.adapters.digest_model import DigestModelAdapter
 from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.schema.digest import Digest, DigestError
 from knowledge_topology.schema.loader import load_json
+from knowledge_topology.schema.source_packet import SourcePacket
 from knowledge_topology.storage.transaction import atomic_write_text
 
 
@@ -23,8 +24,12 @@ def render_digest_markdown(digest: Digest, source_packet: dict[str, Any]) -> str
         "",
         f"- Source: `{digest.source_id}`",
         f"- Source type: `{source_packet.get('source_type')}`",
+        f"- Content mode: `{source_packet.get('content_mode')}`",
         f"- Digest depth: `{digest.digest_depth}`",
         f"- Passes completed: `{', '.join(str(item) for item in digest.passes_completed)}`",
+        "",
+        "## Source Artifacts",
+        json.dumps(source_packet.get("artifacts", []), indent=2, sort_keys=True),
         "",
         "## Author Claims",
         json.dumps(digest.author_claims, indent=2, sort_keys=True),
@@ -71,6 +76,10 @@ def write_digest_artifacts(
     if not source_packet_path.exists():
         raise DigestWorkerError(f"source packet not found: {source_id}")
     source_packet = load_json(source_packet_path)
+    packet = SourcePacket(**source_packet)
+    packet.validate()
+    if packet.id != source_id:
+        raise DigestWorkerError("source packet id does not match requested source")
     payload = model_adapter.load_output()
     digest = Digest.from_dict(payload)
     if digest.source_id != source_id:
@@ -79,6 +88,8 @@ def write_digest_artifacts(
     digest_dir = paths.ensure_dir(f"digests/by_source/{source_id}")
     json_path = digest_dir / f"{digest.id}.json"
     md_path = digest_dir / f"{digest.id}.md"
+    if json_path.exists() or md_path.exists():
+        raise DigestWorkerError(f"digest artifact already exists: {digest.id}")
     atomic_write_text(json_path, json.dumps(digest.to_dict(), indent=2, sort_keys=True) + "\n")
     atomic_write_text(md_path, render_digest_markdown(digest, source_packet))
     return json_path, md_path
