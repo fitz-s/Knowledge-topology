@@ -13,6 +13,11 @@ P10 Mainline Closure
 - `412970d` - Freeze P10 mainline closure plan
 - `6cb1a44` - Close mainline status reality gaps
 - `35464e0` - Approve P10 mainline closure
+- `57294bb` - Align final P10 closure evidence
+
+Final closure evidence note: the commit that updates this record may itself be
+the terminal P10 closure commit. Treat the pushed HEAD and final response as the
+authoritative terminal commit reference when this file is the changed artifact.
 
 ## Verification Evidence
 

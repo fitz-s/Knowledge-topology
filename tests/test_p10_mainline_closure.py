@@ -106,6 +106,8 @@ class P10MainlineClosureTests(unittest.TestCase):
         self.assertIn("| P10 Mainline Closure | approved |", status)
         self.assertNotIn("| P10 Mainline Closure | in progress |", status)
         self.assertIn("35464e0", review)
+        self.assertIn("57294bb", review)
+        self.assertIn("terminal P10 closure commit", review)
         self.assertIn("Required: no.", review)
         self.assertNotIn("expected to include", review)
 
