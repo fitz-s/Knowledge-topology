@@ -89,6 +89,8 @@ def build_parser() -> argparse.ArgumentParser:
     writeback_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
     writeback_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
     writeback_parser.add_argument("--base-canonical-rev", required=True, help="base canonical revision")
+    writeback_parser.add_argument("--current-canonical-rev", required=True, help="current canonical revision")
+    writeback_parser.add_argument("--current-subject-head-sha", required=True, help="current subject HEAD SHA")
 
     return parser
 
@@ -200,6 +202,8 @@ def main(argv: list[str] | None = None) -> int:
                 subject_repo_id=args.subject_repo_id,
                 subject_head_sha=args.subject_head_sha,
                 base_canonical_rev=args.base_canonical_rev,
+                current_canonical_rev=args.current_canonical_rev,
+                current_subject_head_sha=args.current_subject_head_sha,
             )
         except (WritebackError, ValueError) as exc:
             parser.exit(2, f"topology writeback: {exc}\n")

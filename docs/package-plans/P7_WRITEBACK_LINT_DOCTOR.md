@@ -10,6 +10,8 @@ apply beyond producing mutation proposals.
 
 - P7 must validate P6 builder packs without treating projections as canonical.
 - P7 must produce writeback mutation proposals, not direct canonical writes.
+- P7 writeback must reject stale canonical or subject preconditions before it
+  emits review artifacts.
 - P7 must surface stale file refs and local-only projection leakage.
 - P7 should remain deterministic and stdlib-only.
 - P7 changes lint/doctor/writeback gates, so Gemini is required before P8
@@ -19,7 +21,7 @@ apply beyond producing mutation proposals.
 
 | Small Package | Purpose | Files / Surfaces | Fixtures / Tests | Acceptance Criteria | Stop Condition |
 | --- | --- | --- | --- | --- | --- |
-| P7.1 Lint | Check public-safe packets, projection leakage, relationship-test schema, missing antibodies | `workers/lint.py` | lint fixtures | bad states fail with clear messages | lint mutates files |
+| P7.1 Lint | Check public-safe packets, projection leakage, relationship-test schema, missing antibodies | `workers/lint.py` | lint fixtures | bad states fail with clear messages; every invariant ID is covered by a matching `invariant_node_id` | lint mutates files |
 | P7.2 Doctor | Report stale file refs and queue/projection diagnostics | `workers/doctor.py` | stale file ref fixtures | stale anchors reported | doctor writes canonical |
 | P7.3 Writeback | Convert session summary into mutation proposal and relationship-test delta | `workers/writeback.py` | writeback fixtures | mutation pack and reltest delta emitted | writes canonical directly |
 | P7.4 CLI | Add `topology lint`, `topology doctor stale-anchors`, `topology writeback` | `cli.py` | CLI smoke tests | nonzero on lint failures | CLI bypasses workers |
@@ -39,9 +41,12 @@ writeback semantics.
 - `topology lint` fails for:
   - unsafe public text source packets
   - generated projection files outside fixtures
-  - malformed relationship-test outputs
-  - builder-critical invariants without relationship-test specs
+  - malformed relationship-test outputs in builder packs and writeback deltas
+  - builder-critical invariants without relationship-test specs for the exact
+    invariant IDs in `constraints.json`
 - `topology doctor stale-anchors` reports stale file refs.
 - `topology writeback` writes a pending mutation proposal and relationship-test
   delta without canonical writes.
+- `topology writeback` rejects stale `base_canonical_rev` or
+  `subject_head_sha` before writing mutation or reltest files.
 - P0-P6 tests still pass.

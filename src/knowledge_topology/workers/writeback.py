@@ -9,6 +9,7 @@ from typing import Any
 from knowledge_topology.ids import new_id
 from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.schema.mutation_pack import MutationPack
+from knowledge_topology.workers.compose_builder import deterministic_reltest_id
 from knowledge_topology.storage.transaction import atomic_write_text
 
 
@@ -28,13 +29,21 @@ def writeback_session(
     subject_repo_id: str,
     subject_head_sha: str,
     base_canonical_rev: str,
+    current_canonical_rev: str,
+    current_subject_head_sha: str,
 ) -> tuple[Path, Path]:
     for field, value in {
         "subject_repo_id": subject_repo_id,
         "subject_head_sha": subject_head_sha,
         "base_canonical_rev": base_canonical_rev,
+        "current_canonical_rev": current_canonical_rev,
+        "current_subject_head_sha": current_subject_head_sha,
     }.items():
         _require(value, field)
+    if base_canonical_rev != current_canonical_rev:
+        raise WritebackError("base_canonical_rev is stale")
+    if subject_head_sha != current_subject_head_sha:
+        raise WritebackError("subject_head_sha is stale")
     paths = TopologyPaths.from_root(root)
     summary = json.loads(Path(summary_path).read_text(encoding="utf-8"))
     decisions = summary.get("decisions", [])
@@ -84,7 +93,7 @@ def writeback_session(
         if change.get("type") == "invariant":
             reltest_lines.extend([
                 "- schema_version: 1.0",
-                f"  id: {new_id('reltest')}",
+                f"  id: {deterministic_reltest_id(change['node_id'])}",
                 f"  invariant_node_id: {change['node_id']}",
                 f"  property: {json.dumps(change['reason'])}",
                 f"  evidence_refs: {json.dumps(pack.evidence_refs)}",

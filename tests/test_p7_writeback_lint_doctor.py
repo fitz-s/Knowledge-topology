@@ -44,8 +44,88 @@ class P7WritebackLintDoctorTests(unittest.TestCase):
             result = run_lints(root)
             self.assertFalse(result.ok)
             joined = "\n".join(result.messages)
-            self.assertIn("missing schema_version", joined)
-            self.assertIn("missing reltest_ id", joined)
+            self.assertIn("malformed relationship tests", joined)
+            self.assertIn("missing fields", joined)
+
+    def test_lint_detects_structural_relationship_test_false_negative(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            pack = root / "projections/tasks/task_rel"
+            pack.mkdir(parents=True)
+            reltest_id = new_id("reltest")
+            (pack / "relationship-tests.yaml").write_text(
+                "\n".join([
+                    "- schema_version: 1.0",
+                    f"  id: {reltest_id}",
+                    "",
+                ]),
+                encoding="utf-8",
+            )
+            result = run_lints(root)
+            self.assertFalse(result.ok)
+            self.assertIn("missing fields", "\n".join(result.messages))
+
+    def test_lint_detects_missing_antibody_for_uncovered_invariant_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            pack = root / "projections/tasks/task_missing_cover"
+            pack.mkdir(parents=True)
+            invariant_id = new_id("nd")
+            unrelated_id = new_id("nd")
+            (pack / "constraints.json").write_text(
+                json.dumps({"count": 1, "invariants": [{"id": invariant_id}]}) + "\n",
+                encoding="utf-8",
+            )
+            (pack / "relationship-tests.yaml").write_text(
+                "\n".join([
+                    "- schema_version: 1.0",
+                    f"  id: {new_id('reltest')}",
+                    f"  invariant_node_id: {unrelated_id}",
+                    '  property: "wrong invariant"',
+                    "  evidence_refs: []",
+                    "  suggested_test_shape: unit",
+                    '  failure_if: ["wrong invariant violated"]',
+                    "  status: draft",
+                    "",
+                ]),
+                encoding="utf-8",
+            )
+            result = run_lints(root)
+            self.assertFalse(result.ok)
+            joined = "\n".join(result.messages)
+            self.assertIn("missing relationship tests", joined)
+            self.assertIn(invariant_id, joined)
+
+    def test_lint_detects_missing_antibody_when_reltest_file_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            pack = root / "projections/tasks/task_no_reltests"
+            pack.mkdir(parents=True)
+            (pack / "constraints.json").write_text(
+                json.dumps({"count": 1, "invariants": [{"id": new_id("nd")}]}) + "\n",
+                encoding="utf-8",
+            )
+            result = run_lints(root)
+            self.assertFalse(result.ok)
+            self.assertIn("missing relationship tests", "\n".join(result.messages))
+
+    def test_lint_checks_writeback_relationship_test_deltas(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            delta = root / ".tmp/writeback" / new_id("mut")
+            delta.mkdir(parents=True)
+            (delta / "relationship-tests.yaml").write_text(
+                "- schema_version: 1.0\n"
+                f"  id: {new_id('reltest')}\n",
+                encoding="utf-8",
+            )
+            result = run_lints(root)
+            self.assertFalse(result.ok)
+            self.assertIn("malformed relationship tests", "\n".join(result.messages))
 
     def test_doctor_reports_stale_file_refs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -84,11 +164,46 @@ class P7WritebackLintDoctorTests(unittest.TestCase):
                 subject_repo_id="repo_knowledge_topology",
                 subject_head_sha="abc123",
                 base_canonical_rev="rev_current",
+                current_canonical_rev="rev_current",
+                current_subject_head_sha="abc123",
             )
             self.assertEqual(mutation.parent.name, "pending")
             self.assertTrue(reltest.exists())
             self.assertIn("reltest_", reltest.read_text(encoding="utf-8"))
             self.assertEqual((root / "canonical/registry/nodes.jsonl").read_text(encoding="utf-8"), "")
+
+    def test_writeback_rejects_stale_preconditions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            summary = root / ".tmp/summary.json"
+            summary.parent.mkdir(exist_ok=True)
+            summary.write_text(json.dumps({
+                "source_id": new_id("src"),
+                "digest_id": new_id("dg"),
+                "decisions": ["D"],
+                "invariants": [],
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "base_canonical_rev is stale"):
+                writeback_session(
+                    root,
+                    summary_path=summary,
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                    base_canonical_rev="old",
+                    current_canonical_rev="new",
+                    current_subject_head_sha="abc123",
+                )
+            with self.assertRaisesRegex(ValueError, "subject_head_sha is stale"):
+                writeback_session(
+                    root,
+                    summary_path=summary,
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="old",
+                    base_canonical_rev="rev_current",
+                    current_canonical_rev="rev_current",
+                    current_subject_head_sha="new",
+                )
 
     def test_cli_lint_doctor_writeback_smoke(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -124,6 +239,10 @@ class P7WritebackLintDoctorTests(unittest.TestCase):
                     "abc123",
                     "--base-canonical-rev",
                     "rev_current",
+                    "--current-canonical-rev",
+                    "rev_current",
+                    "--current-subject-head-sha",
+                    "abc123",
                 ],
                 cwd=ROOT,
                 env=env,
