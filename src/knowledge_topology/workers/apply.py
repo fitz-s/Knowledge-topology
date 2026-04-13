@@ -103,9 +103,10 @@ def record_for_change(change: dict[str, Any], pack: MutationPack) -> dict[str, A
 
 def render_page(change: dict[str, Any], pack: MutationPack) -> str:
     title = change.get("statement") or change.get("note") or change.get("reason") or change["op"]
+    record_id = change.get("claim_id") or change.get("edge_id") or change.get("node_id") or change.get("gap_id")
     return "\n".join([
         "---",
-        f"id: {change.get('claim_id') or change.get('edge_id') or change.get('node_id')}",
+        f"id: {record_id}",
         f"mutation_pack_id: {pack.id}",
         f"op: {change['op']}",
         "---",

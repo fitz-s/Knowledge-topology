@@ -178,7 +178,9 @@ class P5ApplyGateTests(unittest.TestCase):
                 subject_head_sha="abc123",
             )
             self.assertTrue((root / "ops/gaps/open.jsonl").read_text(encoding="utf-8").strip())
-            self.assertTrue(list((root / "ops/gaps").glob("gap_*.md")))
+            gap_page = next((root / "ops/gaps").glob("gap_*.md"))
+            gap_record = json.loads((root / "ops/gaps/open.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            self.assertIn(f"id: {gap_record['gap_id']}", gap_page.read_text(encoding="utf-8"))
 
     def test_stale_precondition_rejects_before_writes_or_move(self):
         with tempfile.TemporaryDirectory() as tmp:
