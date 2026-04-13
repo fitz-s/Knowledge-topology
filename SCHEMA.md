@@ -102,6 +102,21 @@ opaque IDs.
 - `cross_scope_upgrade`
 - `weak_evidence_merge`
 
+`source_type` for P2:
+
+- `local_draft`
+- `github_artifact`
+- `article_html`
+- `pdf_arxiv`
+
+`content_status`:
+
+- `complete`
+- `partial`
+- `blocked`
+- `paywalled`
+- `missing`
+
 ## Source Packet
 
 Minimum fields:
