@@ -81,6 +81,34 @@ def deterministic_reltest_id(node_id: str) -> str:
     return "reltest_" + "".join(reversed(chars))
 
 
+def safe_pack_dir(paths: TopologyPaths, task_id: str) -> Path:
+    projections_dir = paths.root / "projections"
+    tasks_root = projections_dir / "tasks"
+    for path in (projections_dir, tasks_root):
+        if path.exists() and path.is_symlink():
+            raise ComposeError("builder projection directories must not be symlinks")
+    projections_dir.mkdir(parents=True, exist_ok=True)
+    tasks_root.mkdir(parents=True, exist_ok=True)
+    if projections_dir.resolve() != projections_dir or tasks_root.resolve() != tasks_root:
+        raise ComposeError("builder projection directories must stay on their lexical paths")
+    task_path = tasks_root / task_id
+    if task_path.exists() and task_path.is_symlink():
+        raise ComposeError("builder pack task directory must not be a symlink")
+    task_path.mkdir(parents=True, exist_ok=True)
+    resolved = task_path.resolve()
+    if resolved != task_path or resolved.parent != tasks_root:
+        raise ComposeError("builder pack directory must stay under projections/tasks")
+    return task_path
+
+
+def safe_output(pack_dir: Path, filename: str) -> Path:
+    output = pack_dir / filename
+    resolved = output.resolve()
+    if resolved.parent != pack_dir:
+        raise ComposeError("builder pack output path escaped task directory")
+    return output
+
+
 def load_applied_state(paths: TopologyPaths) -> dict[str, list[dict[str, Any]]]:
     return {
         "claims": read_jsonl(paths.resolve("canonical/registry/claims.jsonl")),
@@ -178,7 +206,7 @@ def write_builder_pack(
     nodes = bounded([item for item in state["nodes"] if visible_to_builders(item)], 40)
     gaps = bounded([item for item in state["gaps"] if visible_to_builders(item)], 20)
 
-    pack_dir = paths.ensure_dir(f"projections/tasks/{safe_task_id}")
+    pack_dir = safe_pack_dir(paths, safe_task_id)
     metadata = {
         "task_id": safe_task_id,
         "goal": goal,
@@ -206,10 +234,10 @@ def write_builder_pack(
         "",
     ])
 
-    atomic_write_text(pack_dir / "metadata.json", json.dumps(metadata, indent=2, sort_keys=True) + "\n")
-    atomic_write_text(pack_dir / "constraints.json", json.dumps(constraints, indent=2, sort_keys=True) + "\n")
-    atomic_write_text(pack_dir / "relationship-tests.yaml", relationship_tests_for(nodes))
-    atomic_write_text(pack_dir / "source-bundle.json", json.dumps(source_bundle, indent=2, sort_keys=True) + "\n")
-    atomic_write_text(pack_dir / "writeback-targets.json", json.dumps(writeback_targets, indent=2, sort_keys=True) + "\n")
-    atomic_write_text(pack_dir / "brief.md", brief)
+    atomic_write_text(safe_output(pack_dir, "metadata.json"), json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+    atomic_write_text(safe_output(pack_dir, "constraints.json"), json.dumps(constraints, indent=2, sort_keys=True) + "\n")
+    atomic_write_text(safe_output(pack_dir, "relationship-tests.yaml"), relationship_tests_for(nodes))
+    atomic_write_text(safe_output(pack_dir, "source-bundle.json"), json.dumps(source_bundle, indent=2, sort_keys=True) + "\n")
+    atomic_write_text(safe_output(pack_dir, "writeback-targets.json"), json.dumps(writeback_targets, indent=2, sort_keys=True) + "\n")
+    atomic_write_text(safe_output(pack_dir, "brief.md"), brief)
     return pack_dir

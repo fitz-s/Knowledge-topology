@@ -129,6 +129,20 @@ class P6BuilderComposeTests(unittest.TestCase):
             with self.assertRaises(Exception):
                 write_builder_pack(root, task_id="../../canonical/registry/p6_escape", goal="goal", canonical_rev="rev", subject_repo_id="repo", subject_head_sha="sha", allow_dirty=True)
             self.assertFalse((root / "canonical/registry/p6_escape").exists())
+            (root / "projections/tasks/symlink_task").symlink_to(root / "canonical/registry")
+            with self.assertRaises(Exception):
+                write_builder_pack(root, task_id="symlink_task", goal="goal", canonical_rev="rev", subject_repo_id="repo", subject_head_sha="sha", allow_dirty=True)
+            self.assertFalse((root / "canonical/registry/metadata.json").exists())
+
+            tasks = root / "projections/tasks"
+            for child in list(tasks.iterdir()):
+                if child.is_symlink():
+                    child.unlink()
+            tasks.rmdir()
+            tasks.symlink_to(root / "canonical/registry")
+            with self.assertRaises(Exception):
+                write_builder_pack(root, task_id="root_link_task", goal="goal", canonical_rev="rev", subject_repo_id="repo", subject_head_sha="sha", allow_dirty=True)
+            self.assertFalse((root / "canonical/registry/root_link_task/metadata.json").exists())
 
     def test_operator_scope_and_missing_audience_are_excluded(self):
         with tempfile.TemporaryDirectory() as tmp:
