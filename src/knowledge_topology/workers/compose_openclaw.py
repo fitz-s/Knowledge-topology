@@ -186,6 +186,16 @@ def projected_audiences(value: Any) -> list[str] | None:
     return safe or None
 
 
+def safe_read_jsonl(paths: TopologyPaths, relative: str, label: str) -> list[dict[str, Any]]:
+    path = paths.resolve(relative)
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise OpenClawComposeError(f"{label} registry is invalid: input must be a regular file")
+    try:
+        return read_jsonl(path)
+    except (OSError, RegistryError) as exc:
+        raise OpenClawComposeError(f"{label} registry is invalid: {exc}") from exc
+
+
 def opaque_id_list(value: Any, prefix: str) -> list[str] | None:
     if not isinstance(value, list):
         return None
@@ -274,10 +284,7 @@ def runtime_record(record: dict[str, Any]) -> dict[str, Any]:
 
 def projected_nodes(paths: TopologyPaths) -> list[dict[str, Any]]:
     records = []
-    try:
-        rows = read_jsonl(paths.resolve("canonical/registry/nodes.jsonl"))
-    except (OSError, RegistryError) as exc:
-        raise OpenClawComposeError(f"nodes registry is invalid: {exc}") from exc
+    rows = safe_read_jsonl(paths, "canonical/registry/nodes.jsonl", "nodes")
     for row in rows:
         record_id = row.get("id") or row.get("node_id")
         if not isinstance(record_id, str) or not is_valid_id(record_id, prefix="nd"):
@@ -307,7 +314,7 @@ def visible_labeled_record(record: dict[str, Any]) -> bool:
     return True
 
 
-def projected_gap(record: dict[str, Any]) -> dict[str, Any] | None:
+def projected_gap(record: dict[str, Any], visible_node_ids: set[str]) -> dict[str, Any] | None:
     if not visible_labeled_record(record):
         return None
     gap_id = record.get("gap_id")
@@ -318,6 +325,8 @@ def projected_gap(record: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(digest_id, str) or not is_valid_id(digest_id, prefix="dg"):
         return None
     if target_id != "NEW" and (not isinstance(target_id, str) or not is_valid_id(target_id, prefix="nd")):
+        return None
+    if target_id != "NEW" and target_id not in visible_node_ids:
         return None
     output = {
         "gap_id": gap_id,
@@ -355,12 +364,9 @@ def projected_escalation(record: dict[str, Any]) -> dict[str, Any] | None:
     return output
 
 
-def projected_gaps(paths: TopologyPaths) -> list[dict[str, Any]]:
-    try:
-        rows = read_jsonl(paths.resolve("ops/gaps/open.jsonl"))
-    except (OSError, RegistryError) as exc:
-        raise OpenClawComposeError(f"open gaps registry is invalid: {exc}") from exc
-    gaps = [gap for row in rows if (gap := projected_gap(row)) is not None]
+def projected_gaps(paths: TopologyPaths, visible_node_ids: set[str]) -> list[dict[str, Any]]:
+    rows = safe_read_jsonl(paths, "ops/gaps/open.jsonl", "open gaps")
+    gaps = [gap for row in rows if (gap := projected_gap(row, visible_node_ids)) is not None]
     return sorted(gaps, key=lambda item: item["gap_id"])
 
 
@@ -503,10 +509,11 @@ def write_openclaw_projection(
         generated_at=generated_at,
     )
     records = projected_nodes(paths)
+    visible_node_ids = {record["id"] for record in records}
     pack = {
         **meta,
         "records": records,
-        "open_gaps": projected_gaps(paths),
+        "open_gaps": projected_gaps(paths, visible_node_ids),
         "pending_escalations": projected_escalations(paths),
         "writeback_policy": WRITEBACK_POLICY,
     }

@@ -100,6 +100,7 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 "authority": "repo_observed",
             }
             hidden_gap = {**visible_gap, "gap_id": new_id("gap"), "sensitivity": "operator_only"}
+            hidden_target_gap = {**visible_gap, "gap_id": new_id("gap"), "target_id": hidden["id"]}
             malformed_gap = {**visible_gap, "gap_id": new_id("gap"), "status": ["active"]}
             visible_escalation = {
                 "id": new_id("esc"),
@@ -117,7 +118,7 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             bad_gate_escalation = {**visible_escalation, "id": new_id("esc"), "human_gate_class": "bypass_apply_gate"}
             malformed_escalation = {**visible_escalation, "id": new_id("esc"), "status": ["active"]}
             write_jsonl(root / "canonical/registry/nodes.jsonl", [hidden, runtime_observation, visible, builder_only, operator_directive, malformed_operator_directive, malformed_type, malformed_status, malformed])
-            write_jsonl(root / "ops/gaps/open.jsonl", [visible_gap, hidden_gap, malformed_gap])
+            write_jsonl(root / "ops/gaps/open.jsonl", [visible_gap, hidden_gap, hidden_target_gap, malformed_gap])
             (root / "ops/escalations" / f"{visible_escalation['id']}.json").write_text(json.dumps(visible_escalation), encoding="utf-8")
             (root / "ops/escalations" / f"{hidden_escalation['id']}.json").write_text(json.dumps(hidden_escalation), encoding="utf-8")
             (root / "ops/escalations" / f"{bad_gate_escalation['id']}.json").write_text(json.dumps(bad_gate_escalation), encoding="utf-8")
@@ -885,6 +886,32 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 if target.exists() and target.is_file():
                     target.unlink()
                 target.mkdir(parents=True, exist_ok=True)
+                with self.assertRaisesRegex(ValueError, message):
+                    write_openclaw_projection(
+                        root,
+                        project_id="openclaw_project",
+                        canonical_rev="rev_current",
+                        subject_repo_id="repo_knowledge_topology",
+                        subject_head_sha="abc123",
+                        allow_dirty=True,
+                        clock=lambda: FIXED_TIME,
+                    )
+
+    def test_openclaw_rejects_special_jsonl_inputs_before_reading(self):
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("mkfifo unavailable")
+        cases = [
+            ("canonical/registry/nodes.jsonl", "nodes registry is invalid"),
+            ("ops/gaps/open.jsonl", "open gaps registry is invalid"),
+        ]
+        for relative, message in cases:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                init_topology(root)
+                target = root / relative
+                if target.exists():
+                    target.unlink()
+                os.mkfifo(target)
                 with self.assertRaisesRegex(ValueError, message):
                     write_openclaw_projection(
                         root,
