@@ -153,7 +153,6 @@ string.
 
 - `gap_id`
 - `target_id`
-- `reason`
 - `digest_id`
 - `status`
 - `source_ids`
@@ -163,8 +162,6 @@ string.
 `pending_escalations` entries:
 
 - `id`
-- `summary`
-- `reason`
 - `status`
 - `source_ids`
 - `audiences`

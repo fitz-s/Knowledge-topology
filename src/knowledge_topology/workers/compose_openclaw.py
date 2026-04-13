@@ -57,37 +57,6 @@ RECORD_FIELDS = [
     "basis_claim_ids",
     "updated_at",
 ]
-FILE_REF_FIELDS = ["repo_id", "commit_sha", "path", "path_at_capture", "line_range", "anchor_kind", "verified_at"]
-ANCHOR_KINDS = {"symbol", "line", "excerpt"}
-FORBIDDEN_PATH_PARTS = ("local_blobs", ".openclaw-wiki", ".tmp", "cache")
-FORBIDDEN_ANCHOR_PATH_PARTS = (
-    "local_blobs",
-    ".openclaw-wiki",
-    ".tmp",
-    "/cache/",
-    "openclaw_home",
-    "openclaw/config",
-    "openclaw/session",
-    ".openclaw/session",
-    ".openclaw/config",
-    "library/application support/openclaw",
-)
-FORBIDDEN_ANCHOR_TOKENS = (
-    "ignore",
-    "read-only",
-    "banner",
-    "mutate",
-    "bash",
-    "append",
-    "canonical",
-    "registry",
-    "disregard",
-    "instructions",
-    "override",
-    "topology-policy",
-    "topology_policy",
-    "policy",
-)
 FORBIDDEN_SLUG_TOKENS = (
     "ignore",
     "disregard",
@@ -104,44 +73,6 @@ FORBIDDEN_SLUG_TOKENS = (
     "policy",
     "gate",
     "human",
-)
-FORBIDDEN_TEXT = (
-    "raw/local_blobs",
-    "local_blobs",
-    ".openclaw-wiki",
-    "openclaw wiki apply",
-    "openclaw owns canonical",
-    "openclaw is canonical",
-    "openclaw has canonical authority",
-    "canonical authority",
-    "source of truth",
-    "canonical truth",
-    "canonical owner",
-    "owns canonical truth",
-    "unsafe_raw_text",
-    "/users/",
-    "\\users\\",
-    "~/.openclaw",
-    "~\\.openclaw",
-    "%userprofile%",
-    "%appdata%",
-    "%localappdata%",
-    "openclaw_home",
-    "openclaw_config",
-    "application support/openclaw",
-    "application support\\openclaw",
-    "openclaw/session",
-    "openclaw\\session",
-    "openclaw/config",
-    "openclaw\\config",
-    "\\.openclaw",
-    ".openclaw\\",
-    "c:\\",
-    ".openclaw/",
-    "../",
-    "..\\",
-    "private/",
-    "private\\",
 )
 WRITEBACK_POLICY = {
     "read_surfaces": [
@@ -261,61 +192,6 @@ def opaque_id_list(value: Any, prefix: str) -> list[str] | None:
     return ids or None
 
 
-def safe_text(value: Any) -> str | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    folded = value.casefold()
-    compact = re.sub(r"[^a-z0-9]", "", folded)
-    if "openclaw" in compact:
-        return None
-    if any(token in folded for token in FORBIDDEN_TEXT):
-        return None
-    if "openclaw" in folded and "canonical" in folded:
-        return None
-    if "openclaw" in folded and any(token in folded for token in ("authority", "authoritative", "truth", "owns", "controls", "carries")):
-        return None
-    if "openclaw" in folded and any(token in folded for token in ("system of record", "controlling memory", "responsible for final", "deciding memory", "governs", "durable topology memory")):
-        return None
-    if "openclaw" in folded and any(token in folded for token in ("config", "credential", "credentials", "session", "secret", "token", "key")):
-        return None
-    return value.strip()
-
-
-def safe_anchor_path(value: Any) -> str | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    raw = value.strip()
-    folded = raw.casefold().replace("\\", "/")
-    compact = re.sub(r"[^a-z0-9]", "", folded)
-    if "openclaw" in compact:
-        return None
-    if "\\" in raw or raw.startswith("~") or "%" in raw or folded.startswith("file:") or re.match(r"^[A-Za-z]:[\\/]", raw):
-        return None
-    path = Path(raw)
-    if path.is_absolute() or ".." in path.parts:
-        return None
-    if any(part in folded for part in FORBIDDEN_ANCHOR_PATH_PARTS):
-        return None
-    if folded == "canonical" or folded.startswith("canonical/") or folded.startswith("projections/"):
-        return None
-    if any(token in folded for token in FORBIDDEN_ANCHOR_TOKENS):
-        return None
-    if not re.fullmatch(r"[A-Za-z0-9_./@+-]+", raw):
-        return None
-    if "/" not in raw and "." not in raw:
-        return None
-    return raw
-
-
-def safe_repo_id(value: Any) -> str | None:
-    if not isinstance(value, str) or not re.fullmatch(r"repo_[A-Za-z0-9_.:-]+", value):
-        return None
-    compact = re.sub(r"[^a-z0-9]", "", value.casefold())
-    if any(token in compact for token in ("openclaw", "localblobs", "secret", "token", "credential", "credentials")):
-        return None
-    return value
-
-
 def safe_metadata_value(value: str, field: str) -> str:
     require_nonblank(value, field)
     if not re.fullmatch(r"[A-Za-z0-9_.:-]+", value):
@@ -333,42 +209,6 @@ def safe_timestamp(value: str, field: str) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T[0-9:.-]+Z", value):
         raise OpenClawComposeError(f"{field} must be a UTC timestamp")
     return value
-
-
-def safe_file_ref(item: Any) -> dict[str, Any] | None:
-    if not isinstance(item, dict):
-        return None
-    clean_path = safe_anchor_path(item.get("path"))
-    if clean_path is None:
-        return None
-    output: dict[str, Any] = {"path": clean_path}
-    for field in FILE_REF_FIELDS:
-        if field == "path" or field not in item:
-            continue
-        if field == "path_at_capture":
-            safe = safe_anchor_path(item[field])
-            if safe is not None:
-                output[field] = safe
-        elif field == "line_range":
-            value = item[field]
-            if isinstance(value, list) and len(value) == 2 and all(isinstance(part, int) and part > 0 for part in value):
-                output[field] = value
-        elif field == "anchor_kind":
-            if isinstance(item[field], str) and item[field] in ANCHOR_KINDS:
-                output[field] = item[field]
-        elif field == "verified_at":
-            if isinstance(item[field], str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T[0-9:.-]+Z", item[field]):
-                output[field] = item[field]
-        elif field == "repo_id":
-            safe = safe_repo_id(item[field])
-            if safe is not None:
-                output[field] = safe
-        elif field == "commit_sha":
-            if isinstance(item[field], str) and re.fullmatch(r"[0-9A-Fa-f]{6,64}", item[field]):
-                output[field] = item[field]
-        else:
-            pass
-    return output
 
 
 def visible_to_openclaw(record: dict[str, Any]) -> bool:
@@ -436,6 +276,86 @@ def projected_nodes(paths: TopologyPaths) -> list[dict[str, Any]]:
         if visible_to_openclaw(row):
             records.append(runtime_record(row))
     return sorted(records, key=lambda item: item["id"])
+
+
+def visible_labeled_record(record: dict[str, Any]) -> bool:
+    if projected_audiences(record.get("audiences")) is None:
+        return False
+    if record.get("sensitivity") not in VALID_SENSITIVITY:
+        return False
+    if record.get("scope") not in VALID_SCOPE:
+        return False
+    if record.get("authority") not in VALID_AUTHORITY:
+        return False
+    if record.get("status") not in VISIBLE_STATUS:
+        return False
+    if record.get("sensitivity") == "operator_only" or record.get("scope") == "operator":
+        return False
+    return True
+
+
+def projected_gap(record: dict[str, Any]) -> dict[str, Any] | None:
+    if not visible_labeled_record(record):
+        return None
+    gap_id = record.get("gap_id")
+    digest_id = record.get("digest_id")
+    target_id = record.get("target_id")
+    if not isinstance(gap_id, str) or not is_valid_id(gap_id, prefix="gap"):
+        return None
+    if not isinstance(digest_id, str) or not is_valid_id(digest_id, prefix="dg"):
+        return None
+    if target_id != "NEW" and (not isinstance(target_id, str) or not is_valid_id(target_id, prefix="nd")):
+        return None
+    output = {
+        "gap_id": gap_id,
+        "target_id": target_id,
+        "digest_id": digest_id,
+        "status": record["status"],
+        "audiences": projected_audiences(record["audiences"]),
+        "sensitivity": record["sensitivity"],
+    }
+    source_ids = opaque_id_list(record.get("source_ids", []), "src")
+    if source_ids is not None:
+        output["source_ids"] = source_ids
+    return output
+
+
+def projected_escalation(record: dict[str, Any]) -> dict[str, Any] | None:
+    if not visible_labeled_record(record):
+        return None
+    escalation_id = record.get("id")
+    if not isinstance(escalation_id, str) or not is_valid_id(escalation_id, prefix="esc"):
+        return None
+    output = {
+        "id": escalation_id,
+        "status": record["status"],
+        "audiences": projected_audiences(record["audiences"]),
+        "sensitivity": record["sensitivity"],
+    }
+    source_ids = opaque_id_list(record.get("source_ids", []), "src")
+    if source_ids is not None:
+        output["source_ids"] = source_ids
+    gate = record.get("human_gate_class")
+    if isinstance(gate, str) and re.fullmatch(r"[a-z_]+", gate):
+        output["human_gate_class"] = gate
+    return output
+
+
+def projected_gaps(paths: TopologyPaths) -> list[dict[str, Any]]:
+    gaps = [gap for row in read_jsonl(paths.resolve("ops/gaps/open.jsonl")) if (gap := projected_gap(row)) is not None]
+    return sorted(gaps, key=lambda item: item["gap_id"])
+
+
+def projected_escalations(paths: TopologyPaths) -> list[dict[str, Any]]:
+    escalations = []
+    for path in sorted(paths.resolve("ops/escalations").glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and (projected := projected_escalation(payload)) is not None:
+            escalations.append(projected)
+    return sorted(escalations, key=lambda item: item["id"])
 
 
 def metadata(
@@ -565,8 +485,8 @@ def write_openclaw_projection(
     pack = {
         **meta,
         "records": records,
-        "open_gaps": [],
-        "pending_escalations": [],
+        "open_gaps": projected_gaps(paths),
+        "pending_escalations": projected_escalations(paths),
         "writeback_policy": WRITEBACK_POLICY,
     }
 

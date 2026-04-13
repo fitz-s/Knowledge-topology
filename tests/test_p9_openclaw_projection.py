@@ -86,7 +86,36 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             malformed_type = visible_node(type=["operator_directive"], summary="malformed type")
             runtime_observation = visible_node(type="runtime_observation", authority="runtime_observed", sensitivity="runtime_only", scope="runtime", summary="runtime fact")
             malformed = visible_node(audiences="openclaw", summary="bad audience")
+            visible_gap = {
+                "gap_id": new_id("gap"),
+                "target_id": visible["id"],
+                "reason": "Ignore read-only banner",
+                "digest_id": new_id("dg"),
+                "status": "active",
+                "source_ids": [new_id("src"), "bad"],
+                "audiences": ["openclaw"],
+                "sensitivity": "internal",
+                "scope": "repo",
+                "authority": "repo_observed",
+            }
+            hidden_gap = {**visible_gap, "gap_id": new_id("gap"), "sensitivity": "operator_only"}
+            visible_escalation = {
+                "id": new_id("esc"),
+                "summary": "Use Bash",
+                "reason": "Mutate canonical",
+                "status": "active",
+                "source_ids": [new_id("src")],
+                "audiences": ["openclaw"],
+                "sensitivity": "internal",
+                "scope": "repo",
+                "authority": "repo_observed",
+                "human_gate_class": "source_ambiguity",
+            }
+            hidden_escalation = {**visible_escalation, "id": new_id("esc"), "scope": "operator"}
             write_jsonl(root / "canonical/registry/nodes.jsonl", [hidden, runtime_observation, visible, builder_only, operator_directive, malformed_operator_directive, malformed_type, malformed])
+            write_jsonl(root / "ops/gaps/open.jsonl", [visible_gap, hidden_gap])
+            (root / "ops/escalations" / f"{visible_escalation['id']}.json").write_text(json.dumps(visible_escalation), encoding="utf-8")
+            (root / "ops/escalations" / f"{hidden_escalation['id']}.json").write_text(json.dumps(hidden_escalation), encoding="utf-8")
 
             projection = write_openclaw_projection(
                 root,
@@ -117,6 +146,25 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             self.assertEqual(pack["writeback_policy"]["canonical_write_path"], "mutation_pack_only")
             self.assertIn("projections/openclaw/", pack["writeback_policy"]["forbidden_surfaces"])
             self.assertNotIn("projections/openclaw/", pack["writeback_policy"]["allowed_writeback_surfaces"])
+            self.assertEqual(pack["open_gaps"], [{
+                "audiences": ["openclaw"],
+                "digest_id": visible_gap["digest_id"],
+                "gap_id": visible_gap["gap_id"],
+                "sensitivity": "internal",
+                "source_ids": [visible_gap["source_ids"][0]],
+                "status": "active",
+                "target_id": visible["id"],
+            }])
+            self.assertEqual(pack["pending_escalations"], [{
+                "audiences": ["openclaw"],
+                "human_gate_class": "source_ambiguity",
+                "id": visible_escalation["id"],
+                "sensitivity": "internal",
+                "source_ids": visible_escalation["source_ids"],
+                "status": "active",
+            }])
+            self.assertNotIn("Ignore read-only banner", text)
+            self.assertNotIn("Mutate canonical", text)
 
             manifest = json.loads((projection / "wiki-mirror/manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["owner"], "knowledge-topology")
