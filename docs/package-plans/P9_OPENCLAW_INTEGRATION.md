@@ -138,7 +138,7 @@ Runtime record field whitelist:
 - `claim_ids`
 - `basis_claim_ids`
 - `file_refs`
-- `tags`
+- `tags`: safe slug tokens only
 - `updated_at`
 
 Nested field allowlists:
@@ -160,6 +160,8 @@ only.
 
 `file_refs.path` is not a wiki mirror page path. Local, private, cache, or blob
 paths are excluded from `file_refs`; allowed paths remain code/source anchors.
+`file_refs.symbol` is not projected in P9. `anchor_kind` is an enum only, and
+`verified_at`/`updated_at` must be timestamp-shaped strings.
 
 `open_gaps` entries:
 

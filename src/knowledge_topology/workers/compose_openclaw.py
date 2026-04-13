@@ -25,6 +25,7 @@ VALID_SCOPE = {"global", "repo", "operator", "runtime"}
 VALID_AUTHORITY = {"source_grounded", "repo_observed", "runtime_observed", "fitz_curated", "model_inferred"}
 VALID_STATUS = {"draft", "active", "contested", "superseded", "rejected"}
 VISIBLE_STATUS = {"active", "draft", "contested"}
+CONFIDENCE_VALUES = {"high", "medium", "low"}
 VALID_NODE_TYPES = {
     "finding",
     "method",
@@ -58,7 +59,8 @@ RECORD_FIELDS = [
     "tags",
     "updated_at",
 ]
-FILE_REF_FIELDS = ["repo_id", "commit_sha", "path", "path_at_capture", "line_range", "symbol", "anchor_kind", "excerpt_hash", "verified_at"]
+FILE_REF_FIELDS = ["repo_id", "commit_sha", "path", "path_at_capture", "line_range", "anchor_kind", "excerpt_hash", "verified_at"]
+ANCHOR_KINDS = {"symbol", "line", "excerpt"}
 FORBIDDEN_PATH_PARTS = ("local_blobs", ".openclaw-wiki", ".tmp", "cache")
 FORBIDDEN_ANCHOR_PATH_PARTS = (
     "local_blobs",
@@ -214,7 +216,7 @@ def safe_tags(value: Any) -> list[str] | None:
     values = string_list(value)
     if values is None:
         return None
-    safe = [item for item in values if safe_text(item) is not None]
+    safe = [item for item in values if re.fullmatch(r"[A-Za-z0-9_.:-]+", item)]
     return safe or None
 
 
@@ -298,10 +300,15 @@ def safe_file_ref(item: Any) -> dict[str, Any] | None:
             value = item[field]
             if isinstance(value, list) and len(value) == 2 and all(isinstance(part, int) and part > 0 for part in value):
                 output[field] = value
+        elif field == "anchor_kind":
+            if isinstance(item[field], str) and item[field] in ANCHOR_KINDS:
+                output[field] = item[field]
+        elif field == "verified_at":
+            if isinstance(item[field], str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T[0-9:.-]+Z", item[field]):
+                output[field] = item[field]
         else:
-            text = safe_text(item[field])
-            if text is not None:
-                output[field] = text
+            if isinstance(item[field], str) and re.fullmatch(r"[A-Za-z0-9_.:-]+", item[field]):
+                output[field] = item[field]
     return output
 
 
@@ -351,10 +358,15 @@ def runtime_record(record: dict[str, Any]) -> dict[str, Any]:
             refs = [safe for item in record[field] if (safe := safe_file_ref(item)) is not None] if isinstance(record[field], list) else []
             if refs:
                 output[field] = sorted(refs, key=lambda item: json.dumps(item, sort_keys=True))
-        elif field in {"type", "status", "authority", "scope", "sensitivity", "confidence", "updated_at"}:
-            text = safe_text(record[field])
-            if text is not None:
-                output[field] = text
+        elif field in {"type", "status", "authority", "scope", "sensitivity"}:
+            if isinstance(record[field], str):
+                output[field] = record[field]
+        elif field == "confidence":
+            if record[field] in CONFIDENCE_VALUES:
+                output[field] = record[field]
+        elif field == "updated_at":
+            if isinstance(record[field], str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T[0-9:.-]+Z", record[field]):
+                output[field] = record[field]
         elif field == "audiences":
             audiences = projected_audiences(record[field])
             if audiences is not None:
