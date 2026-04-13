@@ -16,30 +16,36 @@ Track these surfaces:
 - `mutations/approved/`
 - `mutations/applied/`
 - `mutations/rejected/`
-- `ops/events/`: durable append-only audit logs
+- `ops/events/`: durable semantic audit event records
 - `ops/gaps/`
 - `ops/escalations/`
 - `prompts/`
 - `tests/`
 - root policy, schema, storage, queue, audience, subject, and routing docs
 
-`mutations/pending/` may be tracked only when it is a durable review artifact.
-Generated throwaway proposals should stay local until promoted.
+`mutations/pending/` is tracked durable review artifact storage only.
+Transient proposals never live under `mutations/`; use `.tmp/mutations/` or
+local-only queue/runtime surfaces until a proposal is promoted for review.
 
 ## Local-Only
 
 Do not track these surfaces:
 
 - `raw/local_blobs/`
+- `.tmp/`
 - `ops/queue/**`
 - `ops/leases/**`
 - temporary report/cache directories under `ops/reports/`
+- `projections/**` by default
 - `projections/tasks/**`
 - `projections/openclaw/runtime-pack.md`
 - `projections/openclaw/runtime-pack.json`
 - `projections/openclaw/memory-prompt.md`
 - `projections/openclaw/wiki-mirror/**`
 - generated caches, logs, and environment files
+
+Tracked projection examples belong under `tests/fixtures/`, not under
+`projections/`.
 
 ## Public-Safe Source Packets
 

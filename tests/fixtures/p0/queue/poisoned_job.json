@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "id": "job_01HZXAMPLE0000000000000007",
+  "kind": "digest",
+  "created_at": "2026-04-13T00:00:00Z",
+  "created_by": "reader",
+  "subject_repo_id": "repo_knowledge_topology",
+  "subject_head_sha": "abc123",
+  "base_canonical_rev": "rev_current",
+  "payload": {
+    "source_id": "src_01HZXAMPLE0000000000000008"
+  },
+  "attempts": 1,
+  "lease_owner": null,
+  "leased_at": null,
+  "lease_expires_at": null,
+  "expected_state": "failed",
+  "requires_explicit_requeue": true
+}

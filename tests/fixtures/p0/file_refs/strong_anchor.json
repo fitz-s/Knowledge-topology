@@ -1,0 +1,12 @@
+{
+  "repo_id": "repo_knowledge_topology",
+  "commit_sha": "abc123",
+  "path": "src/knowledge_topology/ids.py",
+  "path_at_capture": "src/knowledge_topology/ids.py",
+  "line_range": "1-40",
+  "symbol": "new_id",
+  "anchor_kind": "symbol",
+  "excerpt_hash": "sha256:example",
+  "verified_at": "2026-04-13T00:00:00Z",
+  "symbol_signature": "new_id(prefix: str) -> str"
+}

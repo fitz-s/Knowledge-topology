@@ -25,6 +25,9 @@ writeback targets are generated from canonical records.
 Traversal bounds, sensitivity filtering, and allowed edge types are defined in
 `COMPILE.md`.
 
+All `projections/**` outputs are generated/local-only by default. Tracked
+projection examples belong under `tests/fixtures/`.
+
 ## OpenClaw
 
 OpenClaw is a rich runtime consumer. It reads this repository as

@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "id": "evt_01HZXAMPLE0000000000000009",
+  "event_type": "mutation_applied",
+  "occurred_at": "2026-04-13T00:00:00Z",
+  "actor": "apply_worker",
+  "summary": "Applied a reviewed canonical mutation.",
+  "refs": {
+    "mutation_pack_id": "mut_01HZXAMPLE0000000000000003"
+  },
+  "canonical_rev": "rev_current",
+  "is_queue_churn": false
+}

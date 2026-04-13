@@ -25,18 +25,25 @@ Builder compile must exclude:
 
 ## Traversal Rules
 
-Allowed builder traversal edge types:
+Always eligible builder traversal edge types:
 
 - `IMPLEMENTS`
 - `DEPENDS_ON`
 - `INVARIANT_FOR`
 - `TESTS`
 - `LOCATED_IN`
+
+Eligible with confidence and scope checks:
+
 - `SUPPORTS`
-- `CONTRADICTS`
 - `NARROWS`
 - `SUPERSEDES`
+
+Excluded by default from automatic builder traversal:
+
+- `RELATED_TO`
 - `EXAMPLE_OF`
+- `CONTRADICTS`
 
 Default bounds:
 

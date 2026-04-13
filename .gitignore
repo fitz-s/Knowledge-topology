@@ -3,10 +3,12 @@
 
 # Topology local-only source blobs and generated runtime state
 raw/local_blobs/
+.tmp/
 ops/queue/
 ops/leases/
 ops/reports/tmp/
 ops/reports/cache/
+projections/builders/
 projections/tasks/
 projections/openclaw/runtime-pack.md
 projections/openclaw/runtime-pack.json

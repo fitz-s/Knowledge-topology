@@ -1,0 +1,24 @@
+{
+  "fixture": "enums_and_relationship_test",
+  "node_type": "invariant",
+  "edge_type": "INVARIANT_FOR",
+  "scope": "repo",
+  "authority": "repo_observed",
+  "sensitivity": "internal",
+  "status": "active",
+  "human_gate_class": "high_impact_contradiction",
+  "relationship_test": {
+    "schema_version": "1.0",
+    "id": "reltest_01HZXAMPLE0000000000000005",
+    "invariant_node_id": "nd_01HZXAMPLE0000000000000004",
+    "property": "builder-critical invariants must emit relationship tests",
+    "evidence_refs": [
+      "clm_01HZXAMPLE0000000000000006"
+    ],
+    "suggested_test_shape": "unit",
+    "failure_if": [
+      "relationship-tests.yaml omits this invariant"
+    ],
+    "status": "active"
+  }
+}

@@ -29,6 +29,51 @@ Apply must reject a mutation pack when any precondition fails:
 - Required evidence references are missing or not readable.
 - The change class requires human review and has not been approved.
 
+## Canonical Parity
+
+Registry records are the authority for structured truth fields. Node pages are
+the authority for narrative sections.
+
+Apply writes page frontmatter and registry records in one transaction. Doctor
+parity compares overlapping structured fields only. Manual edits that create
+frontmatter/registry divergence are invalid and must be repaired through apply.
+
+## Revision Cleanliness
+
+`canonical_rev` must account for dirty state. The v1 rule is conservative:
+`apply` and `topology compose builder` are forbidden when the topology repo or
+subject repo has uncommitted changes.
+
+In short: forbidden when the topology repo or subject repo has uncommitted
+changes.
+
+A future implementation may replace this with
+`canonical_rev = <commit sha> + <tree hash> + <dirty bit>`, but it must preserve
+the ability to reject stale or dirty inputs.
+
+## Worker Trust Profiles
+
+`reader`:
+
+- may run intake, fetch, and digest
+- may write source packets, local blobs, digests, and local queue state
+- must not write canonical, run apply, or execute source-provided commands
+
+`reconciler`:
+
+- may read canonical and write mutation packs
+- must not write canonical directly
+
+`writer`:
+
+- may run apply and deterministic compile
+- must not process untrusted external content directly
+
+`reviewer`:
+
+- may approve or reject escalation cards
+- must not mutate canonical except through approved apply workflow.
+
 ## Human Gate Classes
 
 Human review is required for:

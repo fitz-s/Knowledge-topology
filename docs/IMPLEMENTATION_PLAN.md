@@ -26,6 +26,9 @@ These corrections supersede the earlier plan:
 - Storage has a tracked/local-only boundary from the start.
 - Source packets include public-safe content modes and redistribution status.
 - Durable entities use immutable opaque ULID-prefixed IDs; slugs are aliases.
+- Schema value domains and missing payload contracts are frozen before worker
+  code.
+- Relationship-test schema moves to Batch 0.5 before builder compose.
 - Mutation packs include preconditions: `base_canonical_rev`,
   `subject_repo_id`, and `subject_head_sha`.
 - Apply, compile, lint, and doctor are deterministic. LLMs stay in digest and
@@ -116,8 +119,11 @@ eventually include:
 - visibility and sensitivity notes
 
 `canonical_rev` is the revision of this topology repository's canonical truth.
-Until a dedicated canonical revision file exists, it is the Git commit SHA of
-this repository at the time of compile/apply.
+V1 uses a conservative clean-worktree rule: `apply` and
+`topology compose builder` are forbidden when the topology repo or subject repo
+has uncommitted changes. A later implementation may use
+`<commit sha> + <tree hash> + <dirty bit>`, but it must still reject dirty or
+stale inputs.
 
 Every mutation pack, job, file reference, builder pack, and writeback envelope
 must include enough revision data to decide whether it is stale:
@@ -140,7 +146,7 @@ Tracked:
 - `mutations/approved/`
 - `mutations/applied/`
 - `mutations/rejected/`
-- `ops/events/`
+- `ops/events/`: semantic audit event records
 - `ops/gaps/`
 - `ops/escalations/`
 - `prompts/`
@@ -150,9 +156,11 @@ Tracked:
 Local-only or generated:
 
 - `raw/local_blobs/`
+- `.tmp/`
 - `ops/queue/**`
 - `ops/leases/**`
 - temporary report/cache directories under `ops/reports/`
+- `projections/**` by default
 - `projections/tasks/**`
 - generated OpenClaw runtime packs and wiki mirrors
 - caches, logs, environment files
@@ -184,8 +192,8 @@ Workers use atomic move/rename for state transitions:
 3. claim by renaming to `leased/`
 4. finish by renaming to `done/` or `failed/`
 
-Durable audit uses `ops/events/events.jsonl`. Events are append-only history,
-not the active queue.
+Durable audit uses `ops/events/<yyyy>/<mm>/<dd>/evt_<ulid>.json`. Tracked
+events are semantic history, not the active queue and not queue churn.
 
 ## 7. Public-Safe Source Packets
 
@@ -392,6 +400,13 @@ Doctor subcommands:
 - `topology doctor projections`: find stale or leaking projections.
 - `topology doctor canonical-parity`: compare node pages and registries.
 
+Subject commands are part of the Batch 1 command surface:
+
+- `topology subject add`
+- `topology subject refresh`
+- `topology subject show`
+- `topology subject resolve`
+
 Adapters may call the CLI or library, but must not implement separate business
 rules.
 
@@ -466,6 +481,30 @@ Completion:
 - `.gitignore` enforces local-only generated surfaces
 - `pyproject.toml`, package marker, and fixture directory exist
 - no worker behavior is introduced yet
+
+### Batch 0.5: Semantic Freeze Corrections
+
+Build:
+
+- freeze schema enumerations and missing payload contracts
+- move relationship-test schema before builder compose
+- seed `SUBJECTS.yaml` with an example contract
+- freeze clean-worktree or dirty-bit canonical revision rule
+- define `mutations/pending/` as tracked durable review artifact only
+- mark `projections/**` generated/local-only by default
+- split structured registry authority from narrative page authority
+- move tracked audit away from queue churn semantics
+- state queue v1 as single-filesystem only
+- strengthen file refs with anchor kind and excerpt hash
+- operationalize worker trust profiles
+
+Completion:
+
+- root docs and `.gitignore` agree
+- one fixture validates schema enums and relationship-test shape
+- one fixture subject exists
+- queue fixture covers poisoned-job handling
+- no worker implementation starts
 
 ### Batch 1: Engine Skeleton
 

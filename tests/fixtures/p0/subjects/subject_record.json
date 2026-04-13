@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "subject_repo_id": "repo_knowledge_topology",
+  "name": "Knowledge topology",
+  "kind": "git",
+  "location": ".",
+  "default_branch": "main",
+  "head_sha": null,
+  "visibility": "public",
+  "sensitivity": "internal",
+  "created_at": "2026-04-13T00:00:00Z",
+  "updated_at": "2026-04-13T00:00:00Z"
+}

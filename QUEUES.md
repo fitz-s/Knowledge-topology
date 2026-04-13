@@ -4,6 +4,10 @@ Active worker queues use a spool directory model, not shared JSONL queue files.
 This avoids concurrent append conflicts, half-line writes, noisy Git merges,
 and inconsistent filesystem lock semantics.
 
+V1 queues are single-filesystem queues, not a distributed broker. Cross-host
+workers sharing a network mount are out of scope until a real broker exists.
+Lease expiry relies on local clock discipline.
+
 ## Spool Layout
 
 ```text
@@ -17,8 +21,8 @@ ops/queue/
   writeback/{pending,leased,done,failed}
 ```
 
-`ops/queue/**` is local-only runtime state. Durable history is recorded in
-`ops/events/events.jsonl`.
+`ops/queue/**` is local-only runtime state. Durable semantic history is recorded
+under `ops/events/<yyyy>/<mm>/<dd>/evt_<ulid>.json`.
 
 ## Job Files
 
@@ -62,6 +66,10 @@ doctor queues` may requeue expired leases after writing an event.
 
 ## Audit
 
-`ops/events/events.jsonl` is append-only durable audit. It records job creation,
-lease, completion, failure, requeue, mutation application, projection compile,
-and human escalation decisions. Events are not the active queue.
+Tracked durable audit records capture semantic events only. Queue churn such as
+create, lease, complete, fail, and requeue belongs in local-only runtime logs
+unless a worker promotes it to a semantic event. Events are not the active
+queue.
+
+Poisoned jobs move to `failed/` and require explicit requeue. Workers should not
+auto-retry jobs that fail validation or safety checks.
