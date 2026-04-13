@@ -127,6 +127,82 @@ class P7WritebackLintDoctorTests(unittest.TestCase):
             self.assertFalse(result.ok)
             self.assertIn("malformed relationship tests", "\n".join(result.messages))
 
+    def test_lint_rejects_non_opaque_relationship_test_evidence_refs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            delta = root / ".tmp/writeback" / new_id("mut")
+            delta.mkdir(parents=True)
+            (delta / "relationship-tests.yaml").write_text(
+                "\n".join([
+                    "- schema_version: 1.0",
+                    f"  id: {new_id('reltest')}",
+                    f"  invariant_node_id: {new_id('nd')}",
+                    '  property: "prop"',
+                    '  evidence_refs: ["not_an_id"]',
+                    "  suggested_test_shape: unit",
+                    '  failure_if: ["bad"]',
+                    "  status: draft",
+                    "",
+                ]),
+                encoding="utf-8",
+            )
+            result = run_lints(root)
+            self.assertFalse(result.ok)
+            self.assertIn("evidence_refs must be a list of opaque IDs", "\n".join(result.messages))
+
+    def test_lint_rejects_constraints_count_without_invariant_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            pack = root / "projections/tasks/task_no_invariant_ids"
+            pack.mkdir(parents=True)
+            (pack / "constraints.json").write_text(
+                json.dumps({"count": 1, "invariants": []}) + "\n",
+                encoding="utf-8",
+            )
+            (pack / "relationship-tests.yaml").write_text(
+                "\n".join([
+                    "- schema_version: 1.0",
+                    f"  id: {new_id('reltest')}",
+                    f"  invariant_node_id: {new_id('nd')}",
+                    '  property: "arbitrary invariant"',
+                    "  evidence_refs: []",
+                    "  suggested_test_shape: unit",
+                    '  failure_if: ["bad"]',
+                    "  status: draft",
+                    "",
+                ]),
+                encoding="utf-8",
+            )
+            result = run_lints(root)
+            self.assertFalse(result.ok)
+            self.assertIn("count does not match", "\n".join(result.messages))
+
+    def test_lint_rejects_constraints_count_mismatch_and_invalid_invariant_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            mismatch = root / "projections/tasks/task_count_mismatch"
+            mismatch.mkdir(parents=True)
+            (mismatch / "constraints.json").write_text(
+                json.dumps({"count": 2, "invariants": [{"id": new_id("nd")}]}) + "\n",
+                encoding="utf-8",
+            )
+            (mismatch / "relationship-tests.yaml").write_text("[]\n", encoding="utf-8")
+            invalid = root / "projections/tasks/task_invalid_ids"
+            invalid.mkdir(parents=True)
+            (invalid / "constraints.json").write_text(
+                json.dumps({"count": 1, "invariants": [{"id": "not_an_id"}]}) + "\n",
+                encoding="utf-8",
+            )
+            (invalid / "relationship-tests.yaml").write_text("[]\n", encoding="utf-8")
+            result = run_lints(root)
+            self.assertFalse(result.ok)
+            joined = "\n".join(result.messages)
+            self.assertIn("count does not match", joined)
+            self.assertIn("invalid IDs", joined)
+
     def test_doctor_reports_stale_file_refs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

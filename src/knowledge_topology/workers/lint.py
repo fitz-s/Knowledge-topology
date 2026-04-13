@@ -111,7 +111,7 @@ def validate_relationship_test(item: dict[str, object], *, index: int) -> None:
         raise RelationshipTestError(f"item {index} invariant_node_id must use nd_ opaque ID")
     if not isinstance(item["property"], str) or not item["property"].strip():
         raise RelationshipTestError(f"item {index} property is required")
-    if not isinstance(item["evidence_refs"], list) or not all(isinstance(ref, str) and "_" in ref for ref in item["evidence_refs"]):
+    if not isinstance(item["evidence_refs"], list) or not all(isinstance(ref, str) and is_valid_id(ref) for ref in item["evidence_refs"]):
         raise RelationshipTestError(f"item {index} evidence_refs must be a list of opaque IDs")
     if not isinstance(item["suggested_test_shape"], str) or not item["suggested_test_shape"].strip():
         raise RelationshipTestError(f"item {index} suggested_test_shape is required")
@@ -175,13 +175,31 @@ def lint_missing_antibodies(paths: TopologyPaths) -> list[str]:
             continue
         payload = json.loads(constraints.read_text(encoding="utf-8"))
         invariants = payload.get("invariants", [])
-        invariant_ids = {
-            item.get("id") or item.get("node_id")
-            for item in invariants
-            if isinstance(item, dict) and isinstance(item.get("id") or item.get("node_id"), str)
-        }
-        invariant_count = int(payload.get("count", len(invariant_ids)))
+        if not isinstance(invariants, list):
+            messages.append(f"{task_dir}: constraints invariants must be a list")
+            continue
+        invariant_count = int(payload.get("count", len(invariants)))
+        if invariant_count != len(invariants):
+            messages.append(f"{task_dir}: constraints invariant count does not match invariant list")
+            continue
+        invariant_ids: set[str] = set()
+        invalid_invariant_ids: list[str] = []
+        for item in invariants:
+            if not isinstance(item, dict):
+                invalid_invariant_ids.append("<non-object>")
+                continue
+            candidate = item.get("id") or item.get("node_id")
+            if not isinstance(candidate, str) or not is_valid_id(candidate, prefix="nd"):
+                invalid_invariant_ids.append(str(candidate))
+                continue
+            invariant_ids.add(candidate)
         if invariant_count <= 0 and not invariant_ids:
+            continue
+        if invalid_invariant_ids:
+            messages.append(f"{task_dir}: constraints invariants contain invalid IDs: {', '.join(invalid_invariant_ids)}")
+            continue
+        if invariant_count > 0 and not invariant_ids:
+            messages.append(f"{task_dir}: constraints declare invariants without invariant IDs")
             continue
         try:
             covered = {item["invariant_node_id"] for item in parse_relationship_tests(reltests)}
