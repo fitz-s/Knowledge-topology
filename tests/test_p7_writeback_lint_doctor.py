@@ -302,6 +302,71 @@ class P7WritebackLintDoctorTests(unittest.TestCase):
                     current_subject_head_sha="new",
                 )
 
+    def test_writeback_rejects_malformed_summary_before_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            summary = root / ".tmp/summary.json"
+            summary.parent.mkdir(exist_ok=True)
+            summary.write_text(json.dumps({
+                "digest_id": new_id("dg"),
+                "decisions": ["D"],
+                "invariants": [],
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "source_id must use src_ opaque ID"):
+                writeback_session(
+                    root,
+                    summary_path=summary,
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                    base_canonical_rev="rev_current",
+                    current_canonical_rev="rev_current",
+                    current_subject_head_sha="abc123",
+                )
+            self.assertEqual(list((root / "mutations/pending").glob("*.json")), [])
+            self.assertFalse((root / ".tmp/writeback").exists())
+
+    def test_writeback_rejects_scalar_decisions_and_invalid_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            summary = root / ".tmp/summary.json"
+            summary.parent.mkdir(exist_ok=True)
+            summary.write_text(json.dumps({
+                "source_id": "not_an_id",
+                "digest_id": new_id("dg"),
+                "decisions": "D",
+                "invariants": [],
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "source_id must use src_ opaque ID"):
+                writeback_session(
+                    root,
+                    summary_path=summary,
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                    base_canonical_rev="rev_current",
+                    current_canonical_rev="rev_current",
+                    current_subject_head_sha="abc123",
+                )
+            summary.write_text(json.dumps({
+                "source_id": new_id("src"),
+                "digest_id": new_id("dg"),
+                "decisions": "D",
+                "invariants": [],
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "decisions must be a list"):
+                writeback_session(
+                    root,
+                    summary_path=summary,
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                    base_canonical_rev="rev_current",
+                    current_canonical_rev="rev_current",
+                    current_subject_head_sha="abc123",
+                )
+            self.assertEqual(list((root / "mutations/pending").glob("*.json")), [])
+            self.assertFalse((root / ".tmp/writeback").exists())
+
     def test_cli_lint_doctor_writeback_smoke(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

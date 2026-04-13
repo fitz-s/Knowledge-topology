@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from knowledge_topology.ids import is_valid_id
 from knowledge_topology.ids import new_id
 from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.schema.mutation_pack import MutationPack
@@ -20,6 +21,35 @@ class WritebackError(ValueError):
 def _require(value: str, field: str) -> None:
     if not value.strip():
         raise WritebackError(f"{field} is required")
+
+
+def _string_list(summary: dict[str, Any], field: str) -> list[str]:
+    value = summary.get(field, [])
+    if not isinstance(value, list):
+        raise WritebackError(f"{field} must be a list of non-empty strings")
+    normalized: list[str] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, str) or not item.strip():
+            raise WritebackError(f"{field}[{index}] must be a non-empty string")
+        normalized.append(item.strip())
+    return normalized
+
+
+def load_summary(summary_path: str | Path) -> tuple[str, str, list[str], list[str]]:
+    path = Path(summary_path)
+    try:
+        summary = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise WritebackError(f"summary JSON is invalid: {exc}") from exc
+    if not isinstance(summary, dict):
+        raise WritebackError("summary JSON must be an object")
+    source_id = summary.get("source_id")
+    digest_id = summary.get("digest_id")
+    if not isinstance(source_id, str) or not is_valid_id(source_id, prefix="src"):
+        raise WritebackError("source_id must use src_ opaque ID")
+    if not isinstance(digest_id, str) or not is_valid_id(digest_id, prefix="dg"):
+        raise WritebackError("digest_id must use dg_ opaque ID")
+    return source_id, digest_id, _string_list(summary, "decisions"), _string_list(summary, "invariants")
 
 
 def writeback_session(
@@ -45,17 +75,15 @@ def writeback_session(
     if subject_head_sha != current_subject_head_sha:
         raise WritebackError("subject_head_sha is stale")
     paths = TopologyPaths.from_root(root)
-    summary = json.loads(Path(summary_path).read_text(encoding="utf-8"))
-    decisions = summary.get("decisions", [])
-    invariants = summary.get("invariants", [])
+    source_id, digest_id, decisions, invariants = load_summary(summary_path)
     changes: list[dict[str, Any]] = []
     for statement in decisions:
         changes.append({
             "op": "propose_node",
             "node_id": new_id("nd"),
             "reason": str(statement),
-            "source_id": summary["source_id"],
-            "digest_id": summary["digest_id"],
+            "source_id": source_id,
+            "digest_id": digest_id,
             "type": "decision",
         })
     for statement in invariants:
@@ -63,8 +91,8 @@ def writeback_session(
             "op": "propose_node",
             "node_id": new_id("nd"),
             "reason": str(statement),
-            "source_id": summary["source_id"],
-            "digest_id": summary["digest_id"],
+            "source_id": source_id,
+            "digest_id": digest_id,
             "type": "invariant",
         })
     if not changes:
@@ -78,7 +106,7 @@ def writeback_session(
         subject_repo_id=subject_repo_id,
         subject_head_sha=subject_head_sha,
         changes=changes,
-        evidence_refs=[summary["digest_id"], summary["source_id"]],
+        evidence_refs=[digest_id, source_id],
         requires_human=False,
         human_gate_class=None,
         merge_confidence="medium",
