@@ -10,6 +10,7 @@ from knowledge_topology.adapters.digest_model import JsonFileDigestAdapter
 from knowledge_topology.schema.digest import DigestError
 from knowledge_topology.schema.mutation_pack import MutationPackError
 from knowledge_topology.workers.apply import ApplyError, apply_mutation
+from knowledge_topology.workers.compose_builder import ComposeError, write_builder_pack
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
 from knowledge_topology.workers.fetch import FetchError, ingest_source
 from knowledge_topology.workers.init import init_topology
@@ -56,6 +57,16 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
     apply_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
     apply_parser.add_argument("--approve-human", action="store_true", help="approve human-gated mutation")
+
+    compose_parser = subparsers.add_parser("compose", help="compose derived projections")
+    compose_subparsers = compose_parser.add_subparsers(dest="compose_command")
+    builder_parser = compose_subparsers.add_parser("builder", help="compose a task-scoped builder pack")
+    builder_parser.add_argument("--root", default=".", help="topology root")
+    builder_parser.add_argument("--task-id", required=True, help="task ID")
+    builder_parser.add_argument("--goal", required=True, help="task goal")
+    builder_parser.add_argument("--canonical-rev", required=True, help="canonical revision")
+    builder_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    builder_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
 
     return parser
 
@@ -128,6 +139,20 @@ def main(argv: list[str] | None = None) -> int:
             parser.exit(2, f"topology apply: {exc}\n")
         print(f"applied mutation pack: {applied_path}")
         print(f"wrote audit event: {event_path}")
+        return 0
+    if args.command == "compose" and args.compose_command == "builder":
+        try:
+            pack_dir = write_builder_pack(
+                Path(args.root).expanduser().resolve(),
+                task_id=args.task_id,
+                goal=args.goal,
+                canonical_rev=args.canonical_rev,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+            )
+        except (ComposeError, ValueError) as exc:
+            parser.exit(2, f"topology compose builder: {exc}\n")
+        print(f"created builder pack: {pack_dir}")
         return 0
     parser.print_help()
     return 0
