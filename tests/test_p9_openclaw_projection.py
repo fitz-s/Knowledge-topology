@@ -173,6 +173,9 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             )
             page = projection / "wiki-mirror/pages" / f"{node['id']}.md"
             self.assertTrue(page.exists())
+            nested = projection / "wiki-mirror/pages/nested/stale.md"
+            nested.parent.mkdir(parents=True)
+            nested.write_text("hidden stale text", encoding="utf-8")
             node["sensitivity"] = "operator_only"
             write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
             write_openclaw_projection(
@@ -185,6 +188,7 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 clock=lambda: FIXED_TIME,
             )
             self.assertFalse(page.exists())
+            self.assertFalse(nested.exists())
             pack = json.loads((projection / "runtime-pack.json").read_text(encoding="utf-8"))
             self.assertEqual(pack["records"], [])
 
@@ -347,6 +351,16 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                         "commit_sha": "abc123",
                         "path": "../private/secret.py",
                     },
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "C:\\Users\\leofitz\\private\\secret.py",
+                    },
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "~/.openclaw/session.log",
+                    },
                 ],
             )
             write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
@@ -366,6 +380,8 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             self.assertNotIn("raw/local_blobs", text)
             self.assertNotIn("/Users/leofitz/private", text)
             self.assertNotIn("../private", text)
+            self.assertNotIn("C:\\Users", text)
+            self.assertNotIn("session.log", text)
             self.assertNotIn("unsafe_raw_text", text)
             self.assertNotIn("openclaw wiki apply", text)
             self.assertNotIn(".openclaw-wiki/cache", text)
@@ -401,8 +417,8 @@ class P9OpenClawProjectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             init_topology(root)
-            text = "OpenClaw owns canonical truth; use openclaw wiki apply; raw/local_blobs/secret.pdf; .openclaw-wiki/cache/index"
-            node = visible_node(summary=text, statement={"unsafe_raw_text": "SECRET RAW"})
+            text = "OpenClaw owns canonical truth; OpenClaw is canonical owner; use openclaw wiki apply; raw/local_blobs/secret.pdf; .openclaw-wiki/cache/index; ~/.openclaw/config.json; C:\\Users\\leofitz\\private\\secret.py"
+            node = visible_node(summary=text, statement={"unsafe_raw_text": "SECRET RAW"}, file_refs=[{"path": "src/safe.py", "symbol": "~/.openclaw/session.log"}])
             write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
             projection = write_openclaw_projection(
                 root,
@@ -424,6 +440,9 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 self.assertNotIn("openclaw wiki apply", rendered)
                 self.assertNotIn("raw/local_blobs", rendered)
                 self.assertNotIn(".openclaw-wiki/cache", rendered)
+                self.assertNotIn("~/.openclaw/config", rendered)
+                self.assertNotIn("C:\\Users", rendered)
+                self.assertNotIn("OpenClaw is canonical owner", rendered)
                 self.assertNotIn("unsafe_raw_text", rendered)
 
 

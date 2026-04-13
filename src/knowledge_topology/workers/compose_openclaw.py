@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -50,11 +52,18 @@ FORBIDDEN_TEXT = (
     ".openclaw-wiki",
     "openclaw wiki apply",
     "openclaw owns canonical",
+    "openclaw is canonical",
+    "canonical owner",
     "owns canonical truth",
     "unsafe_raw_text",
     "/users/",
+    "\\users\\",
+    "~/.openclaw",
+    ".openclaw/",
     "../",
+    "..\\",
     "private/",
+    "private\\",
 )
 WRITEBACK_POLICY = {
     "read_surfaces": [
@@ -189,6 +198,8 @@ def safe_text(value: Any) -> str | None:
 
 def safe_anchor_path(value: Any) -> str | None:
     if not isinstance(value, str) or not value.strip():
+        return None
+    if "\\" in value or value.startswith("~") or re.match(r"^[A-Za-z]:[\\/]", value):
         return None
     path = Path(value)
     if path.is_absolute() or ".." in path.parts:
@@ -436,8 +447,11 @@ def write_openclaw_projection(
 
     openclaw_dir = safe_openclaw_dir(paths)
     pages_dir = openclaw_dir / "wiki-mirror/pages"
-    for stale_page in pages_dir.glob("*.md"):
-        stale_page.unlink()
+    for stale in pages_dir.iterdir():
+        if stale.is_symlink() or stale.is_file():
+            stale.unlink()
+        elif stale.is_dir():
+            shutil.rmtree(stale)
     page_entries = []
     for record in records:
         relative = f"wiki-mirror/pages/{record['id']}.md"
