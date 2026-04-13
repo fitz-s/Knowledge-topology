@@ -13,7 +13,7 @@ from knowledge_topology.git_state import read_git_state
 from knowledge_topology.ids import is_valid_id
 from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.schema.mutation_pack import HUMAN_GATE_CLASSES
-from knowledge_topology.storage.registry import read_jsonl
+from knowledge_topology.storage.registry import RegistryError, read_jsonl
 from knowledge_topology.storage.transaction import atomic_write_text
 
 
@@ -274,7 +274,11 @@ def runtime_record(record: dict[str, Any]) -> dict[str, Any]:
 
 def projected_nodes(paths: TopologyPaths) -> list[dict[str, Any]]:
     records = []
-    for row in read_jsonl(paths.resolve("canonical/registry/nodes.jsonl")):
+    try:
+        rows = read_jsonl(paths.resolve("canonical/registry/nodes.jsonl"))
+    except (OSError, RegistryError) as exc:
+        raise OpenClawComposeError(f"nodes registry is invalid: {exc}") from exc
+    for row in rows:
         record_id = row.get("id") or row.get("node_id")
         if not isinstance(record_id, str) or not is_valid_id(record_id, prefix="nd"):
             continue
@@ -352,16 +356,22 @@ def projected_escalation(record: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def projected_gaps(paths: TopologyPaths) -> list[dict[str, Any]]:
-    gaps = [gap for row in read_jsonl(paths.resolve("ops/gaps/open.jsonl")) if (gap := projected_gap(row)) is not None]
+    try:
+        rows = read_jsonl(paths.resolve("ops/gaps/open.jsonl"))
+    except (OSError, RegistryError) as exc:
+        raise OpenClawComposeError(f"open gaps registry is invalid: {exc}") from exc
+    gaps = [gap for row in rows if (gap := projected_gap(row)) is not None]
     return sorted(gaps, key=lambda item: item["gap_id"])
 
 
 def projected_escalations(paths: TopologyPaths) -> list[dict[str, Any]]:
     escalations = []
     for path in sorted(paths.resolve("ops/escalations").glob("*.json")):
+        if path.is_symlink() or not path.is_file():
+            raise OpenClawComposeError(f"escalation input must be a regular file: {path}")
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             continue
         if isinstance(payload, dict) and (projected := projected_escalation(payload)) is not None:
             escalations.append(projected)
