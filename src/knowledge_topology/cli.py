@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from knowledge_topology.schema.source_packet import SourcePacketError
 from knowledge_topology.adapters.digest_model import JsonFileDigestAdapter
 from knowledge_topology.schema.digest import DigestError
 from knowledge_topology.schema.mutation_pack import MutationPackError
+from knowledge_topology.workers.agent_guard import guard_claude_pre_tool_use
 from knowledge_topology.workers.apply import ApplyError, apply_mutation
 from knowledge_topology.workers.compose_builder import ComposeError, write_builder_pack
 from knowledge_topology.workers.doctor import stale_anchors
@@ -91,6 +93,11 @@ def build_parser() -> argparse.ArgumentParser:
     writeback_parser.add_argument("--base-canonical-rev", required=True, help="base canonical revision")
     writeback_parser.add_argument("--current-canonical-rev", required=True, help="current canonical revision")
     writeback_parser.add_argument("--current-subject-head-sha", required=True, help="current subject HEAD SHA")
+
+    guard_parser = subparsers.add_parser("agent-guard", help="run deterministic agent integration guards")
+    guard_subparsers = guard_parser.add_subparsers(dest="guard_command")
+    claude_guard = guard_subparsers.add_parser("claude-pre-tool-use", help="guard Claude PreToolUse direct file writes")
+    claude_guard.add_argument("--root", default=".", help="topology root")
 
     return parser
 
@@ -210,6 +217,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"created writeback mutation pack: {mutation_path}")
         print(f"created relationship-test delta: {reltest_path}")
         return 0
+    if args.command == "agent-guard" and args.guard_command == "claude-pre-tool-use":
+        result = guard_claude_pre_tool_use(Path(args.root).expanduser().resolve(), sys.stdin.read())
+        if result.allowed:
+            return 0
+        print(result.reason, file=sys.stderr)
+        return 2
     parser.print_help()
     return 0
 
