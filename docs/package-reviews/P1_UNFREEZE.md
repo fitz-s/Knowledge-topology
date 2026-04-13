@@ -12,7 +12,7 @@ P1 Engine Skeleton
 ## Implementation Commits
 
 - `45427a2` - Establish the P1 topology engine skeleton
-- queue hardening follow-up commit - clear stale lease metadata on explicit requeue and validate spool job paths
+- `3a946c7` - Harden P1 queue handling before unfreeze
 
 ## Verification Evidence
 
@@ -36,9 +36,9 @@ Evidence: reviewer confirmed P1 stayed within skeleton scope, satisfied PRD/test
 
 ## Critic Verdict
 
-Blocked pending P1-specific Gemini validation.
+Approved after P1-specific Gemini validation and queue hardening.
 
-The critic found no current code blocker after verification, but `PACKAGE_GATES.md` requires external Gemini validation because P1 touches path safety and queue/storage mechanics.
+The critic initially blocked P1 because Gemini was required for path-safety and queue/storage core mechanics. The residual queue risks were hardened before final unfreeze.
 
 ## Gemini Status
 
@@ -46,15 +46,23 @@ Required: yes.
 
 Artifacts:
 
-- `.omx/artifacts/gemini-p1-engine-skeleton-unfreeze-timeout-20260413T145915Z.md`
+- `.omx/artifacts/gemini-p1-engine-skeleton-unfreeze-retry-20260413T150114Z.md`
+- Previous timeout evidence: `.omx/artifacts/gemini-p1-engine-skeleton-unfreeze-timeout-20260413T145915Z.md`
 
-Status: unavailable due timeout. Previous `omx ask gemini` invocation hung for more than 5 minutes and direct `gemini -p` timed out after 120 seconds.
+Gemini verdict: `APPROVE`.
+
+Gemini residual risks:
+
+- Path rejection is intentionally strict for any `.topology` path segment.
+- `lease_next` can leave a leased job without owner/expiry if a crash happens between move and metadata rewrite; later `doctor queues` should recover this.
+- Lease management relies on local clock discipline, matching the single-filesystem v1 contract.
+- `move_job` validates filesystem layout but does not yet enforce state transitions from internal job metadata.
 
 ## Residual Risks
 
-- P1 unfreeze remains blocked until P1-specific Gemini validation succeeds or the user explicitly waives the gate.
-- P2 must not start while this record remains blocked.
+- The residual risks above are accepted as non-blocking for P1 and should be covered in later doctor/worker packages.
+- P2 must not expand queue semantics beyond P1's single-filesystem contract.
 
 ## Final Decision
 
-`blocked`
+`approved`
