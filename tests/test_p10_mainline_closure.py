@@ -101,7 +101,13 @@ class P10MainlineClosureTests(unittest.TestCase):
         self.assertIn("docs/package-reviews/P10_UNFREEZE.md", plan)
         self.assertIn("Gemini remains not required only if P10 does not change", plan)
         self.assertTrue((ROOT / "docs/package-reviews/P10_UNFREEZE.md").exists())
-        self.assertIn("Required: no.", read("docs/package-reviews/P10_UNFREEZE.md"))
+        status = read("docs/MAINLINE_STATUS.md")
+        review = read("docs/package-reviews/P10_UNFREEZE.md")
+        self.assertIn("| P10 Mainline Closure | approved |", status)
+        self.assertNotIn("| P10 Mainline Closure | in progress |", status)
+        self.assertIn("35464e0", review)
+        self.assertIn("Required: no.", review)
+        self.assertNotIn("expected to include", review)
 
 
 if __name__ == "__main__":

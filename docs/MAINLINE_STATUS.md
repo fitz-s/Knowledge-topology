@@ -28,7 +28,7 @@ contract.
 | P7 Writeback, Lint, Doctor | approved | `docs/package-plans/P7_WRITEBACK_LINT_DOCTOR.md` | `docs/package-reviews/P7_UNFREEZE.md` |
 | P8 Codex and Claude Integration | approved | `docs/package-plans/P8_CODEX_CLAUDE_INTEGRATION.md` | `docs/package-reviews/P8_UNFREEZE.md` |
 | P9 OpenClaw Runtime Projection | approved | `docs/package-plans/P9_OPENCLAW_INTEGRATION.md` | `docs/package-reviews/P9_UNFREEZE.md` |
-| P10 Mainline Closure | in progress | `docs/package-plans/P10_MAINLINE_CLOSURE.md` | `docs/package-reviews/P10_UNFREEZE.md` |
+| P10 Mainline Closure | approved | `docs/package-plans/P10_MAINLINE_CLOSURE.md` | `docs/package-reviews/P10_UNFREEZE.md` |
 
 ## Shipped CLI Reality
 

@@ -12,6 +12,7 @@ P10 Mainline Closure
 
 - `412970d` - Freeze P10 mainline closure plan
 - `6cb1a44` - Close mainline status reality gaps
+- `35464e0` - Approve P10 mainline closure
 
 ## Verification Evidence
 
@@ -26,9 +27,8 @@ PYTHONPATH=src python3 -m knowledge_topology.cli doctor stale-anchors --root . -
 git diff --check
 ```
 
-Result: all passed before final unfreeze record creation. The final suite is
-expected to include the P10 unfreeze existence assertion after this record is
-committed.
+Result: all passed after final unfreeze record creation, including the P10
+unfreeze existence assertion.
 
 ## Reviewer Verdict
 
