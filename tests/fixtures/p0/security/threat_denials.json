@@ -1,0 +1,13 @@
+{
+  "fixture": "threat_denials",
+  "denied_actions": [
+    "untrusted_worker_write_canonical",
+    "untrusted_worker_write_canonical_registry",
+    "untrusted_worker_run_apply",
+    "follow_source_path_traversal",
+    "follow_symlink_escape",
+    "execute_source_text_command",
+    "promote_runtime_observation_to_active_truth"
+  ],
+  "expected_default": "deny"
+}

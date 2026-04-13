@@ -18,3 +18,9 @@ and future worker jobs.
 - `SCHEMA.md`: frozen Batch 0 data-model contract.
 - `STORAGE.md`: tracked versus local-only storage rules.
 - `QUEUES.md`: spool queue semantics for multi-agent workers.
+- `GIT_PROTOCOL.md`: commit, push, conflict, and apply-writer rules.
+- `SECURITY.md`: untrusted-content threat model and deny rules.
+- `RAW_POLICY.md`: source content modes and redistribution defaults.
+- `ESCALATIONS.md`: structured human-gate card contract.
+- `SCHEMA_EVOLUTION.md`: versioning and migration policy.
+- `COMPILE.md`: deterministic projection and traversal policy.

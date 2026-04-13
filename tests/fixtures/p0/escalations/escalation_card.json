@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "id": "esc_01HZXAMPLE0000000000000000",
+  "gate_class": "high_impact_contradiction",
+  "question": "Should the existing invariant be superseded or marked contested?",
+  "recommended_default": "mark_contested",
+  "options": [
+    "mark_contested",
+    "approve_supersede",
+    "keep_current"
+  ],
+  "why_it_matters": "Builder packs currently depend on the affected invariant.",
+  "evidence_refs": [
+    "src_01HZXAMPLE0000000000000001",
+    "dg_01HZXAMPLE0000000000000002"
+  ],
+  "mutation_pack_id": "mut_01HZXAMPLE0000000000000003",
+  "base_canonical_rev": "rev_current",
+  "subject_repo_id": "repo_demo",
+  "subject_head_sha": "abc123",
+  "created_at": "2026-04-13T00:00:00Z",
+  "expires_at": "2026-04-20T00:00:00Z"
+}

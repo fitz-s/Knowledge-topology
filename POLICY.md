@@ -45,6 +45,9 @@ Routine source intake, digest generation, low-risk node creation, evidence
 append, alias append, projection compile, and stale reports should be automated
 when schema checks pass.
 
+Escalations must use the structured card format in `ESCALATIONS.md`; do not
+replace human gates with free-form chat prompts.
+
 ## Untrusted Content
 
 Fetched web pages, PDFs, transcripts, social threads, email, logs, and external
@@ -54,8 +57,12 @@ permissions, cannot touch canonical state, and cannot invoke apply.
 Digest output must separate author claims, direct evidence, model inferences,
 contested points, and unresolved ambiguity.
 
+See `SECURITY.md` for threat boundaries and deny rules.
+
 ## Determinism
 
 LLM calls belong primarily in digest and reconcile proposal stages. Apply,
 compile, lint, and doctor should be deterministic. Builder-pack load-bearing
 files are compiled from canonical records, not freely generated.
+
+See `COMPILE.md` for traversal, sensitivity filtering, and projection bounds.

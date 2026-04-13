@@ -1,0 +1,33 @@
+{
+  "fixture": "traversal_case",
+  "task_id": "task_demo",
+  "bounds": {
+    "max_nodes": 40,
+    "max_sources": 20,
+    "max_file_refs": 40,
+    "max_traversal_depth": 2
+  },
+  "allowed_edge_types": [
+    "IMPLEMENTS",
+    "DEPENDS_ON",
+    "INVARIANT_FOR",
+    "TESTS",
+    "LOCATED_IN",
+    "SUPPORTS",
+    "CONTRADICTS",
+    "NARROWS",
+    "SUPERSEDES",
+    "EXAMPLE_OF"
+  ],
+  "excluded_audiences": [
+    "operator_only",
+    "runtime_only"
+  ],
+  "expected_outputs": [
+    "metadata.json",
+    "constraints.json",
+    "relationship-tests.yaml",
+    "source-bundle.json",
+    "writeback-targets.json"
+  ]
+}

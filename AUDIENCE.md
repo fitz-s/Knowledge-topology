@@ -22,6 +22,9 @@ The load-bearing files are deterministic compiler outputs. `brief.md` may use
 natural language, but constraints, relationship tests, source bundles, and
 writeback targets are generated from canonical records.
 
+Traversal bounds, sensitivity filtering, and allowed edge types are defined in
+`COMPILE.md`.
+
 ## OpenClaw
 
 OpenClaw is a rich runtime consumer. It reads this repository as

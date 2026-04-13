@@ -3,6 +3,8 @@
 Batch 0 freezes the core data model. JSON Schema or typed models can refine
 validation later, but they must preserve these fields and semantics.
 
+Schema evolution follows `SCHEMA_EVOLUTION.md`.
+
 ## IDs
 
 All durable entities use immutable opaque IDs with ULID suffixes:
@@ -24,6 +26,7 @@ opaque IDs.
 
 Minimum fields:
 
+- `schema_version`
 - `id`
 - `source_type`
 - `original_url`
@@ -45,6 +48,11 @@ Minimum fields:
 
 Every digest has markdown and JSON forms. The JSON separates:
 
+- `schema_version`
+- `id`
+- `source_id`
+- `digest_depth`
+- `passes_completed`
 - `author_claims`
 - `direct_evidence`
 - `model_inferences`
@@ -60,6 +68,7 @@ Every digest has markdown and JSON forms. The JSON separates:
 
 Minimum fields:
 
+- `schema_version`
 - `id`
 - `slug`
 - `type`
@@ -95,6 +104,7 @@ not reverified.
 
 Minimum fields:
 
+- `schema_version`
 - `id`
 - `proposal_type`
 - `proposed_by`
@@ -108,6 +118,27 @@ Minimum fields:
 - `merge_confidence`
 
 Apply rejects mutation packs whose preconditions no longer hold.
+
+## Escalation Card
+
+Minimum fields:
+
+- `schema_version`
+- `id`
+- `gate_class`
+- `question`
+- `recommended_default`
+- `options`
+- `why_it_matters`
+- `evidence_refs`
+- `mutation_pack_id`
+- `base_canonical_rev`
+- `subject_repo_id`
+- `subject_head_sha`
+- `created_at`
+- `expires_at`
+
+Escalation cards follow `ESCALATIONS.md`.
 
 ## Builder Pack
 

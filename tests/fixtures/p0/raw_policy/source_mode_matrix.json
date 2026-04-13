@@ -1,0 +1,32 @@
+{
+  "fixture": "source_mode_matrix",
+  "defaults": {
+    "local_draft": {
+      "default_mode": "public_text",
+      "fallback_mode": "excerpt_only"
+    },
+    "github_artifact": {
+      "default_mode": "excerpt_only",
+      "pin_required": true
+    },
+    "article_html": {
+      "default_mode": "excerpt_only"
+    },
+    "pdf_arxiv": {
+      "default_mode": "excerpt_only",
+      "blob_mode": "local_blob"
+    },
+    "audio_video_transcript": {
+      "default_mode": "excerpt_only",
+      "blob_mode": "local_blob"
+    },
+    "social_thread": {
+      "default_mode": "excerpt_only"
+    }
+  },
+  "redistributable_values": [
+    "yes",
+    "no",
+    "unknown"
+  ]
+}

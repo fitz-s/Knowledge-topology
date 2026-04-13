@@ -1,0 +1,14 @@
+{
+  "fixture": "stale_apply_conflict",
+  "scenario": "Two apply proposals target the same canonical node from different base revisions.",
+  "base_canonical_rev": "rev_old",
+  "current_canonical_rev": "rev_new",
+  "subject_repo_id": "repo_demo",
+  "subject_head_sha": "abc123",
+  "expected_action": "reject_stale_and_mark_contested",
+  "required_recovery_steps": [
+    "preserve_both_mutation_packs",
+    "emit_contested_status",
+    "re_reconcile_against_current_canonical_rev"
+  ]
+}

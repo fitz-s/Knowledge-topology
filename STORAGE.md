@@ -55,6 +55,8 @@ Every source packet also declares `redistributable`: `yes`, `no`, or `unknown`.
 Public repositories default to `excerpt_only` or `local_blob` unless the source
 is clearly redistributable.
 
+Source-type defaults and excerpt rules are defined in `RAW_POLICY.md`.
+
 ## Blob References
 
 Tracked packet metadata may reference local or private blobs by:

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "id": "nd_01HZXAMPLE0000000000000004",
+  "slug": "demo-invariant",
+  "type": "invariant",
+  "scope": "repo",
+  "sensitivity": "internal",
+  "authority": "repo_observed",
+  "status": "active",
+  "confidence": "high",
+  "audiences": [
+    "builders"
+  ],
+  "source_ids": [],
+  "claim_ids": [],
+  "aliases": [],
+  "tags": [
+    "demo"
+  ],
+  "file_refs": [],
+  "supersedes": [],
+  "superseded_by": []
+}
