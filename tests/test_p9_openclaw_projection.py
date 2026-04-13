@@ -385,6 +385,16 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                         "commit_sha": "abc123",
                         "path": "%APPDATA%/OpenClaw/session.json",
                     },
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "OpenClaw/state.json",
+                    },
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "OPENCLAW_CONFIG=/tmp/secret.json",
+                    },
                 ],
             )
             write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
@@ -410,6 +420,8 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             self.assertNotIn("Application Support/OpenClaw", text)
             self.assertNotIn("OpenClaw/config", text)
             self.assertNotIn("%APPDATA%", text)
+            self.assertNotIn("OpenClaw/state", text)
+            self.assertNotIn("OPENCLAW_CONFIG", text)
             self.assertNotIn("unsafe_raw_text", text)
             self.assertNotIn("openclaw wiki apply", text)
             self.assertNotIn(".openclaw-wiki/cache", text)
@@ -445,7 +457,7 @@ class P9OpenClawProjectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             init_topology(root)
-            text = "OpenClaw owns canonical truth; OpenClaw owns the canonical truth; OpenClaw controls canonical truth; OpenClaw carries canonical truth; OpenClaw is authoritative for canonical memory; OpenClaw is the system of record for topology memory; OpenClaw is the controlling memory for topology decisions; OpenClaw is responsible for final topology memory; OpenClaw is the deciding memory for topology state; OpenClaw governs durable topology memory; OpenClaw is canonical owner; OpenClaw has canonical authority; OpenClaw is the source of truth; use openclaw wiki apply; raw/local_blobs/secret.pdf; .openclaw-wiki/cache/index; ~/.openclaw/config.json; ~\\.openclaw\\config.json; OPENCLAW_HOME/config.json; ~/Library/Application Support/OpenClaw/session.json; %APPDATA%\\OpenClaw\\session.json; %USERPROFILE%\\.openclaw\\sessions\\s.json; C:\\Users\\leofitz\\private\\secret.py"
+            text = "OpenClaw owns canonical truth; OpenClaw owns the canonical truth; OpenClaw controls canonical truth; OpenClaw carries canonical truth; OpenClaw has final say over topology memory; OpenClaw is the official topology memory; OpenClaw decides topology memory; OpenClaw is authoritative for canonical memory; OpenClaw is the system of record for topology memory; OpenClaw is the controlling memory for topology decisions; OpenClaw is responsible for final topology memory; OpenClaw is the deciding memory for topology state; OpenClaw governs durable topology memory; OpenClaw is canonical owner; OpenClaw has canonical authority; OpenClaw is the source of truth; use openclaw wiki apply; raw/local_blobs/secret.pdf; .openclaw-wiki/cache/index; ~/.openclaw/config.json; ~\\.openclaw\\config.json; OPENCLAW_HOME/config.json; ~/Library/Application Support/OpenClaw/session.json; %APPDATA%\\OpenClaw\\session.json; %USERPROFILE%\\.openclaw\\sessions\\s.json; C:\\Users\\leofitz\\private\\secret.py"
             node = visible_node(
                 summary=text,
                 statement={"unsafe_raw_text": "SECRET RAW"},
@@ -490,6 +502,9 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 self.assertNotIn("OpenClaw controls canonical truth", rendered)
                 self.assertNotIn("OpenClaw carries canonical truth", rendered)
                 self.assertNotIn("OpenClaw is authoritative", rendered)
+                self.assertNotIn("final say", rendered)
+                self.assertNotIn("official topology memory", rendered)
+                self.assertNotIn("decides topology memory", rendered)
                 self.assertNotIn("system of record", rendered)
                 self.assertNotIn("controlling memory", rendered)
                 self.assertNotIn("responsible for final", rendered)
@@ -501,6 +516,31 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 self.assertNotIn("%LOCALAPPDATA%", rendered)
                 self.assertNotIn("OPENCLAW_CONFIG", rendered)
                 self.assertNotIn("unsafe_raw_text", rendered)
+
+    def test_openclaw_rejects_unsafe_metadata_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            bad_cases = [
+                {"project_id": "~/.openclaw/config.json"},
+                {"subject_repo_id": "raw/local_blobs/secret"},
+                {"subject_head_sha": "OPENCLAW_TOKEN=/tmp/token"},
+            ]
+            for overrides in bad_cases:
+                kwargs = {
+                    "project_id": "openclaw_project",
+                    "canonical_rev": "rev_current",
+                    "subject_repo_id": "repo_knowledge_topology",
+                    "subject_head_sha": "abc123",
+                }
+                kwargs.update(overrides)
+                with self.assertRaisesRegex(ValueError, "safe slug|forbidden projection text"):
+                    write_openclaw_projection(
+                        root,
+                        **kwargs,
+                        allow_dirty=True,
+                        clock=lambda: FIXED_TIME,
+                    )
 
 
 if __name__ == "__main__":

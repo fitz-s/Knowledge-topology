@@ -238,6 +238,8 @@ def safe_text(value: Any) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     folded = value.casefold()
+    if "openclaw" in folded:
+        return None
     if any(token in folded for token in FORBIDDEN_TEXT):
         return None
     if "openclaw" in folded and "canonical" in folded:
@@ -255,6 +257,8 @@ def safe_anchor_path(value: Any) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     folded = value.casefold().replace("\\", "/")
+    if "openclaw" in folded:
+        return None
     if "\\" in value or value.startswith("~") or "%" in value or re.match(r"^[A-Za-z]:[\\/]", value):
         return None
     path = Path(value)
@@ -262,6 +266,16 @@ def safe_anchor_path(value: Any) -> str | None:
         return None
     if any(part in folded for part in FORBIDDEN_ANCHOR_PATH_PARTS):
         return None
+    return value
+
+
+def safe_metadata_value(value: str, field: str) -> str:
+    require_nonblank(value, field)
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]+", value):
+        raise OpenClawComposeError(f"{field} must be a safe slug or revision token")
+    folded = value.casefold()
+    if any(token in folded for token in ("local_blobs", ".openclaw", "openclaw_config", "openclaw_token")):
+        raise OpenClawComposeError(f"{field} contains forbidden projection text")
     return value
 
 
@@ -481,7 +495,7 @@ def write_openclaw_projection(
         "subject_repo_id": subject_repo_id,
         "subject_head_sha": subject_head_sha,
     }.items():
-        require_nonblank(value, field)
+        safe_metadata_value(value, field)
     paths = TopologyPaths.from_root(root)
     require_topology_state(paths.root, canonical_rev=canonical_rev, allow_dirty=allow_dirty)
     verified = subject_verified(subject_path, subject_head_sha=subject_head_sha, allow_dirty=allow_dirty)
