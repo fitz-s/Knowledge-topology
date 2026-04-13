@@ -1,0 +1,7 @@
+# Subject repositories known to the topology.
+#
+# Fill this registry before producing mutation packs or builder packs for a
+# codebase. `subject_repo_id` values are stable external identifiers used in
+# mutation preconditions, file refs, and projection metadata.
+
+subjects: []

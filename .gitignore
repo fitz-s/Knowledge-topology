@@ -1,6 +1,19 @@
 # Local agent/runtime state
 .omx/
 
+# Topology local-only source blobs and generated runtime state
+raw/local_blobs/
+ops/queue/
+ops/leases/
+ops/reports/tmp/
+ops/reports/cache/
+projections/tasks/
+projections/openclaw/runtime-pack.md
+projections/openclaw/runtime-pack.json
+projections/openclaw/memory-prompt.md
+projections/openclaw/wiki-mirror/
+projections/openclaw/cache/
+
 # macOS
 .DS_Store
 
@@ -14,6 +27,10 @@
 *.log
 .env
 .env.*
+.cache/
+.pytest_cache/
+__pycache__/
+*.py[cod]
 
 # Common dependency/build output
 node_modules/

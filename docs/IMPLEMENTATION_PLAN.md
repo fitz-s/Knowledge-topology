@@ -1,418 +1,535 @@
 # Knowledge Topology Implementation Plan
 
-## 1. Deep Reading Synthesis
+## 1. Frozen Decisions
 
-You are building a repository-root knowledge substrate, not a generic second
-brain and not a search index. The core product is a durable topology that
-converts Fitz-curated raw material into executable knowledge for agents.
+Keep these decisions stable:
 
-The first draft establishes the philosophy:
+- The `Knowledge topology` repository root is the canonical topology substrate.
+  Do not create a production nested `.topology/` directory.
+- Build builder workflow first. The first closed loop remains:
+  `ingest -> digest -> reconcile -> apply -> compose builder -> coding agent ->
+  writeback -> lint`.
+- OpenClaw is a rich runtime consumer, not canonical owner. It reads this repo
+  as `KNOWLEDGE_TOPOLOGY_ROOT` and writes only allowed proposal, audit, queue,
+  and projection surfaces.
+- Builder packs are task-scoped construction packs, not whole-topology dumps.
+- Relationship tests are antibodies. Builder-critical invariants without
+  relationship-test specs fail lint.
+- Mutation packs plus deterministic apply are the only path into canonical
+  state.
 
-- Translation fidelity is more important than retrieval scale.
-- A source is valuable because Fitz curated it, and `curator_note` is the
-  human judgment injection point.
-- The system must preserve claims, methods, assumptions, boundaries, open
-  questions, alternative interpretations, evidence strength, and provenance.
-- Raw material should flow through raw ingestion, digest, topology, and
-  composition.
+## 2. New Corrections
 
-The revised implementation-grade decision is:
+These corrections supersede the earlier plan:
 
-- This `Knowledge topology` repository root replaces the proposed nested
-  `.topology/` directory.
-- The top-level project directories are the shared canonical substrate.
-- The system has `raw / digests / canonical / mutations / ops / projections /
-  prompts / tests`, not only raw/digest/topology/composition.
-- Codex and Claude consume task-scoped builder packs; OpenClaw consumes thicker
-  runtime packs.
-- OpenClaw reads and writes this repository as an external shared topology root,
-  not as memory inside an OpenClaw-private agent workspace.
-- Canonical edits happen through mutation packs and an apply gate.
-- Relationship tests are antibodies: builder-critical invariants must compile
-  into machine-checkable specs.
-- The maintenance model is a worker network, not one omniscient daemon.
+- Active queues use spool directories, not shared JSONL queue files.
+- Storage has a tracked/local-only boundary from the start.
+- Source packets include public-safe content modes and redistribution status.
+- Durable entities use immutable opaque ULID-prefixed IDs; slugs are aliases.
+- Mutation packs include preconditions: `base_canonical_rev`,
+  `subject_repo_id`, and `subject_head_sha`.
+- Apply, compile, lint, and doctor are deterministic. LLMs stay in digest and
+  reconcile proposal layers.
+- Intake, fetch, and digest treat external content as untrusted and cannot touch
+  canonical state.
+- The CLI/Python library is the only business-logic path. MCP, hooks, skills,
+  and OpenClaw adapters are facades.
 
-The stable interpretation: this project is a file-first compiler from curated
-sources and session learnings into agent-usable construction briefs, runtime
-memory packs, and proof obligations.
-
-## 2. Principles
-
-- Preserve reasoning before compressing content.
-- Make every claim traceable to sources, evidence, and authority.
-- Keep canonical truth in repo files; keep indexes and memories derived.
-- Split builder and runtime audiences cleanly.
-- Convert important knowledge into constraints, tests, and writeback targets.
-- Minimize human review by gating only authority-changing decisions.
-- Prefer queue/job contracts over runtime-specific agent magic.
-
-## 3. Decision Drivers
-
-1. Cross-agent durability: knowledge must survive fresh sessions and different
-   runtimes.
-2. Translation fidelity: ingest and digest must not flatten uncertainty or
-   reasoning chains.
-3. Builder usefulness: agents need small construction packs with invariants,
-   interfaces, file anchors, and tests, not a giant memory dump.
-
-## 4. Chosen Architecture
-
-Use the repository root as the canonical substrate and compile audience
-specific projections from it. The old `.topology/` name is now the name of this
-repo's role, not a directory to create inside the repo.
+## 3. Repository Shape
 
 ```text
-Knowledge topology/
+Knowledge-topology/
   README.md
   AGENTS.md
+  CLAUDE.md
   POLICY.md
   SCHEMA.md
   AUDIENCE.md
+  STORAGE.md
+  QUEUES.md
+  SUBJECTS.yaml
+  pyproject.toml
+
+  src/knowledge_topology/
+    __init__.py
+    cli.py
+    ids.py
+    paths.py
+    git_state.py
+    schema/
+    storage/
+    workers/
+    adapters/
+
   raw/
+    packets/
+    excerpts/
+    local_blobs/
+
   digests/
+    by_source/
+
   canonical/
+    nodes/
+    syntheses/
+    registry/
+
   mutations/
+    pending/
+    approved/
+    applied/
+    rejected/
+
   ops/
+    queue/
+    events/
+    gaps/
+    escalations/
+    reports/
+    leases/
+
   projections/
+    builders/
+    tasks/
+    openclaw/
+
   prompts/
   tests/
 ```
 
-Authority order:
+Production topology data lives at repo root. Nested `.topology/` paths may
+exist only in migration or compatibility fixtures.
 
-1. `raw/`: original source packets and fetch artifacts.
-2. `digests/`: model-produced but provenance-preserving digests.
-3. `canonical/`: authoritative nodes, syntheses, and registries.
-4. `mutations/`: proposed canonical changes.
-5. `ops/`: queues, leases, gaps, events, reports, and escalations.
-6. `projections/`: generated builder and OpenClaw views.
+## 4. Storage Contract
 
-Codex and Claude should never consume or edit the entire topology directly.
-They receive builder packs under `projections/tasks/<task-id>/`:
+Tracked:
 
+- `raw/packets/` metadata, normalized safe text, excerpts, fetch manifests
+- `raw/excerpts/`
+- `digests/`
+- `canonical/`
+- `mutations/approved/`
+- `mutations/applied/`
+- `mutations/rejected/`
+- `ops/events/`
+- `ops/gaps/`
+- `ops/escalations/`
+- `prompts/`
+- `tests/`
+- root policy, schema, storage, queue, audience, subject, and routing docs
+
+Local-only or generated:
+
+- `raw/local_blobs/`
+- `ops/queue/**`
+- `ops/leases/**`
+- temporary report/cache directories under `ops/reports/`
+- `projections/tasks/**`
+- generated OpenClaw runtime packs and wiki mirrors
+- caches, logs, environment files
+
+The `.gitignore` enforces the local-only side of this boundary.
+
+## 5. Queue Contract
+
+Active jobs use spool directories:
+
+```text
+ops/queue/<kind>/{pending,leased,done,failed}/job_<ulid>.json
+```
+
+Queue kinds:
+
+- ingest
+- digest
+- reconcile
+- apply
+- compile
+- audit
+- writeback
+
+Workers use atomic move/rename for state transitions:
+
+1. write complete job to a temp path
+2. rename into `pending/`
+3. claim by renaming to `leased/`
+4. finish by renaming to `done/` or `failed/`
+
+Durable audit uses `ops/events/events.jsonl`. Events are append-only history,
+not the active queue.
+
+## 6. Public-Safe Source Packets
+
+Every source packet declares `content_mode`:
+
+- `public_text`: normalized text is safe to track.
+- `excerpt_only`: only metadata and limited excerpts are tracked.
+- `local_blob`: tracked packet stores hashes, references, manifests, and
+  retrieval metadata; full content stays in `raw/local_blobs/` or a private
+  store.
+
+Every source packet declares `redistributable`: `yes`, `no`, or `unknown`.
+Public repositories default to `excerpt_only` or `local_blob` unless the source
+is clearly redistributable.
+
+## 7. Core Schema
+
+All durable entities use immutable opaque IDs:
+
+- `src_`, `dg_`, `mut_`, `job_`, `evt_`, `gap_`, `clm_`, `edg_`, `nd_`
+
+Human-readable slugs and aliases are mutable lookup fields. References use
+opaque IDs.
+
+Source packet minimum fields:
+
+- `id`, `source_type`, `original_url`, `canonical_url`, `retrieved_at`
+- `curator_note`, `ingest_depth`, `authority`, `trust_scope`
+- `content_status`, `content_mode`, `redistributable`
+- `hash_original`, `hash_normalized`, `artifacts`, `fetch_chain`
+
+Digest minimum structure:
+
+- `author_claims`, `direct_evidence`, `model_inferences`
+- `boundary_conditions`, `alternative_interpretations`
+- `contested_points`, `unresolved_ambiguity`, `open_questions`
+- `candidate_edges`, `fidelity_flags`
+
+Node minimum fields:
+
+- `id`, `slug`, `type`, `scope`, `sensitivity`, `authority`
+- `status`, `confidence`, `audiences`
+- `source_ids`, `claim_ids`, `aliases`, `tags`, `file_refs`
+- `supersedes`, `superseded_by`
+
+File ref minimum fields:
+
+- `repo_id`, `commit_sha`, `path`, `line_range`, `symbol`, `verified_at`
+
+Mutation pack minimum fields:
+
+- `id`, `proposal_type`, `proposed_by`
+- `base_canonical_rev`, `subject_repo_id`, `subject_head_sha`
+- `changes`, `evidence_refs`, `requires_human`, `human_gate_class`
+- `merge_confidence`
+
+Builder pack fixed outputs:
+
+- `metadata.json`
 - `brief.md`
 - `constraints.json`
 - `relationship-tests.yaml`
 - `source-bundle.json`
 - `writeback-targets.json`
 
-OpenClaw receives richer runtime projections from this external repository:
+`metadata.json` records `canonical_rev`, `subject_repo_id`,
+`subject_head_sha`, and `generated_at`.
 
-- `runtime-pack.md`
-- `runtime-pack.json`
-- `memory-prompt.md`
-- `wiki-mirror/`
+## 8. Worker Lifecycle
 
-OpenClaw write policy:
+### Intake
 
-- Read access: OpenClaw agents may read the full repository root as shared
-  context.
-- Direct write access: OpenClaw agents may write `raw/`, `mutations/`, `ops/`,
-  and generated `projections/openclaw/` artifacts.
-- Restricted write access: OpenClaw agents must not directly edit
-  `canonical/`, `canonical/registry/`, or root policy/schema documents outside
-  an apply-worker path.
-- Sync model: OpenClaw treats the repository as an external mounted path or Git
-  checkout, records writes in `ops/events.jsonl`, and uses leases before
-  mutating shared queues.
+Command:
 
-## 5. RALPLAN-DR Summary
+```bash
+topology ingest <url-or-path> \
+  --note "why this matters" \
+  --depth deep|standard|scan \
+  --audience builders|openclaw|all \
+  --subject <repo-id>
+```
 
-### Principles
+Intake creates immutable source packets and enqueues digest jobs. It does not
+merge topology nodes.
 
-- File-backed canonical truth beats hidden runtime memory.
-- Provenance and authority are part of the data model, not optional metadata.
-- Generated projections are disposable; canonical history is not.
-- Builder knowledge must become tests, schemas, or constraints when possible.
-- Human attention is for authority changes, not routine digestion.
+### Fetch / Normalize
 
-### Viable Options
+v1 resolvers:
 
-Option A: Keep the first draft's four-layer model.
+- local draft
+- GitHub artifact
+- article/html
+- PDF/arXiv
 
-- Pros: smaller concept surface and easier first prototype.
-- Cons: underspecifies ops, projections, apply gates, writeback, and builder
-  antibodies.
+Deferred resolvers:
 
-Option B: Adopt the `Knowledge topology` repository itself as the substrate and
-worker network.
+- audio/video transcript
+- deep social thread expansion
 
-- Pros: handles Codex, Claude, OpenClaw external read/write, canonical
-  authority, projections, queues, and proof obligations explicitly.
-- Cons: larger initial scaffolding and more schema work before visible value.
+Fetch failures become `partial` when useful data exists. Escalate only for
+canonical ambiguity, auth/paywall, catastrophic fetch failure, or unclear legal
+and trust boundaries.
 
-Option C: Use a graph or vector database as the primary topology.
+### Digest
 
-- Pros: fast traversal/search and common off-the-shelf tooling.
-- Cons: loses human-auditable file authority and makes provenance-bearing
-  review harder.
+Digest performs the four passes from the source drafts:
 
-Chosen: Option B, with graph/vector/QMD/OpenClaw wiki as derived accelerators.
-No nested `.topology/` directory is created for production use.
+1. entity extraction
+2. edge candidate detection
+3. schema validation
+4. fidelity check
 
-## 6. Requirements
+Digest emits markdown and JSON. It preserves reasoning chain, assumptions,
+boundaries, disagreement, alternative interpretations, and evidence strength.
 
-- Initialize the repository root with documented topology directory
-  responsibilities.
-- Define machine-readable schemas for source packets, digests, nodes, edges,
-  mutation packs, projections, and relationship tests.
-- Provide CLI or script entry points for init, ingest, digest, reconcile,
-  apply, compose, lint, doctor, and writeback.
-- Preserve `curator_note`, authority, trust scope, evidence strength, and
-  content status for every source.
-- Produce both human-readable markdown and machine-readable JSON for digests.
-- Require mutation packs for canonical changes.
-- Compile builder packs before building OpenClaw runtime packs.
-- Define OpenClaw external-root read/write rules, leases, queue writes, and
-  writeback boundaries.
-- Fail lint when builder-critical invariants lack relationship-test specs.
-- Emit writeback proposals after builder sessions that change decisions,
-  invariants, interfaces, or runtime assumptions.
+### Reconcile
 
-## 7. Acceptance Criteria
+Reconcile reads canonical records, registries, aliases, syntheses, and gaps,
+then emits mutation packs only. It does not edit canonical state.
 
-- A fresh repo can run `topology init` and produce the root topology tree that
-  passes schema and lint checks.
-- Five representative inputs produce valid `raw/src-*` packets: article/html,
-  PDF, audio/video transcript, social thread, and GitHub artifact.
-- Three sources can pass through digest, reconcile, apply, and canonical node
-  creation without direct canonical edits.
-- A real coding task can call builder composition, consume a task pack, make a
-  code change, and emit writeback proposals.
-- A builder-critical invariant without a relationship-test spec fails lint.
-- OpenClaw projection is generated only from canonical and ops data, never as
-  canonical source.
-- OpenClaw agents can read the external topology root and write allowed
-  surfaces without direct canonical edits.
-- Human escalation cards are emitted for high-impact contradictions,
-  supersession/delete, Fitz beliefs, operator directives, and weak high-impact
-  merges.
+Low-confidence matches do not silently merge. They create new nodes,
+`RELATED_TO` edges, or contested proposals.
 
-## 8. Implementation Steps
+### Apply
 
-### Phase 0: Repository Contract
+Apply is the only canonical writer. It checks mutation preconditions, stages
+writes, updates pages and registries, runs parity lint, writes an audit event,
+and moves the mutation pack to the correct state.
 
-- Keep `AGENTS.md` as the agent operating contract.
-- Add project docs for architecture, policy, schema, and audience split.
-- Decide initial implementation language only when the first executable surface
-  is needed; do not add dependencies before the CLI shape is clear.
+Apply rejects stale proposals and human-gated proposals without approval.
 
-Verification:
+### Compile
 
-- Markdown files describe authority boundaries, worker roles, and red lines.
-- No generated runtime state is committed.
+Compile is deterministic. It generates builder and runtime projections from
+canonical records and registry data.
 
-### Phase 1: Topology Skeleton
+Builder compile comes first. OpenClaw compile comes after the builder closed
+loop works.
 
-- Update root `README.md`; create root `POLICY.md`, `SCHEMA.md`, and
-  `AUDIENCE.md`.
-- Create empty directories for raw, digests, canonical, mutations, ops,
-  projections, prompts, and tests.
-- Seed registries: `nodes.jsonl`, `claims.jsonl`, `edges.jsonl`,
-  `aliases.jsonl`, and `file_refs.jsonl`.
-- Seed ops files: queues, `leases.json`, `events.jsonl`, and `gaps.jsonl`.
-- Implement `topology init`.
+### Writeback
 
-Verification:
+Builder writeback reads git diff, tests changed, commands run, task ID, and
+session summary. It emits mutation packs and relationship-test deltas.
 
-- Empty topology passes schema checks.
-- Running init twice is idempotent.
+OpenClaw writeback emits lower-authority runtime observations, standing orders,
+operator preference proposals, and session summaries. Runtime observations do
+not auto-promote to active canonical truth.
 
-### Phase 2: Source Intake and Fetch
+## 9. Integration Strategy
 
-- Implement `topology ingest <url-or-path> --note --depth --audience`.
-- Normalize source packets with required authority and trust fields.
-- Implement resolvers for article/html, PDF/arXiv, audio/video transcript,
-  social thread, GitHub artifact, and local draft.
-- Store partial fetches with `content_status: partial` instead of failing the
-  whole pipeline.
+Codex:
 
-Verification:
+- `AGENTS.md` stays thin and route-oriented.
+- `.agents/skills/topology-consume/`
+- `.agents/skills/topology-writeback/`
+- `.codex/config.toml` registers topology MCP after CLI contracts stabilize.
+- Codex consumes task packs, not whole topology.
 
-- Each source type creates a valid `raw/src-*` packet.
-- `curator_note` is carried forward exactly.
-- Fetch provenance records original URL, canonical URL, method, timestamp,
-  hash, and content status.
+Claude Code:
 
-### Phase 3: Digest, Reconcile, and Apply
+- `CLAUDE.md` stays thin and route-oriented.
+- `.claude/skills/topology-consume/`
+- `.claude/skills/topology-writeback/`
+- `.claude/settings.json` hooks block direct canonical writes and trigger
+  changed-file lint/writeback.
+- Claude consumes task packs plus skills, not whole topology.
 
-- Store worker prompts under `prompts/`.
-- Implement deep digest with entity extraction, edge candidate detection,
-  schema validation, and fidelity check.
-- Emit `digest.md` and `digest.json`.
-- Implement reconcile so it outputs mutation packs only.
-- Implement apply gates for automatic and human-gated changes.
+OpenClaw:
 
-Verification:
-
-- Digests separate author claims, direct evidence, model inference, contested
-  points, and unresolved ambiguity.
-- Reconcile does not silently merge low-confidence matches.
-- Apply is the only non-fixture path that writes canonical files.
-
-### Phase 4: Builder Projection First
-
-- Implement `topology compose --audience builder --task <task-id>`.
-- Generate `brief.md`, `constraints.json`, `relationship-tests.yaml`,
-  `source-bundle.json`, and `writeback-targets.json`.
-- Keep packs task-scoped and implementation-focused.
-
-Verification:
-
-- Builder pack excludes operator-only directives and broad background reading.
-- Pack contains enough decisions, invariants, interfaces, file anchors, and
-  unknowns to guide a coding agent.
-
-### Phase 5: Antibodies, Lint, and Writeback
-
-- Define relationship-test schema.
-- Compile every builder-critical invariant into a relationship-test spec.
-- Add lint checks for orphan nodes, stale claims, unresolved contradictions,
-  broken supersession chains, invalid file refs, projection leakage, and
-  missing antibodies.
-- Implement `topology writeback` from git diff, tests changed, commands run,
-  and session summary.
-
-Verification:
-
-- Missing relationship tests fail lint for builder-critical invariants.
-- Writeback produces mutation packs and relationship-test deltas.
-- Topology contradictions are marked contested, not overwritten silently.
-
-### Phase 6: Codex and Claude Integration
-
-- Add a topology MCP server when the local CLI contracts are stable.
-- Add `topology-consume` and `topology-writeback` skills for both Codex and
-  Claude.
-- Keep root instruction files thin: routing rules in AGENTS/CLAUDE, procedures
-  in skills.
-- Add hooks or checks that block direct canonical edits outside apply paths.
-
-Verification:
-
-- Codex and Claude can compose builder packs and emit writeback proposals for
-  the same task without duplicating procedure text.
-
-### Phase 7: OpenClaw Runtime Projection
-
-- Treat this repository as `KNOWLEDGE_TOPOLOGY_ROOT`: an external mounted path
-  or Git checkout that OpenClaw agents read and write beside their private
-  workspaces.
-- Implement `topology compose --audience openclaw`.
-- Generate runtime pack markdown/JSON, memory-prompt supplement, and
+- `KNOWLEDGE_TOPOLOGY_ROOT` points at this external repo.
+- OpenClaw writes allowed source, mutation, ops, queue, and projection surfaces.
+- Runtime projection exports `runtime-pack.md/json`, `memory-prompt.md`, and
   `wiki-mirror/`.
-- Ensure OpenClaw maintainer agents write `raw/`, `mutations/`, `ops/`, and
-  generated `projections/openclaw/` only, unless they are explicitly executing
-  the apply-worker path.
-- Add lease handling for OpenClaw queue writes so concurrent agents do not
-  corrupt `ops/queues/*.jsonl`.
-- Add writeback envelopes for OpenClaw observations, durable operator
-  preferences, standing orders, and session summaries.
-- Treat OpenClaw memory-wiki and QMD as derived views.
+- Memory-wiki consumes the mirror; it does not own authority.
 
-Verification:
+## 10. Execution Batches
 
-- OpenClaw projection includes runtime observations, standing orders, gaps,
-  and pending escalations.
-- OpenClaw runtime-only directives do not leak into builder packs.
-- OpenClaw can read the external topology root and write allowed surfaces while
-  direct edits to canonical surfaces are rejected by lint or hooks.
+### Batch 0: Spec Freeze
 
-### Phase 8: Maintenance Network
+Add or update:
 
-- Wire queue files for ingest, digest, reconcile, apply, compile, audit, and
-  writeback.
-- Add lease/lock handling.
-- Add nightly or CI lint sweeps.
-- Add contradiction, freshness, orphanage, drift, and stale source reports.
-- Emit escalation cards for the six human-gated decision classes.
+- `CLAUDE.md`
+- `POLICY.md`
+- `SCHEMA.md`
+- `AUDIENCE.md`
+- `STORAGE.md`
+- `QUEUES.md`
+- `SUBJECTS.yaml`
+- `.gitignore`
+- `pyproject.toml`
+- `src/knowledge_topology/__init__.py`
+- `tests/fixtures/`
 
-Verification:
+Completion:
 
-- Workers can resume from queues without relying on a single long-lived agent
-  session.
-- Reports are deterministic and traceable to canonical records.
+- tracked/local-only rules are in `STORAGE.md`
+- spool queue semantics are in `QUEUES.md`
+- source/digest/node/mutation/builder-pack fields are in `SCHEMA.md`
+- root `AGENTS.md` and `CLAUDE.md` remain thin routing files
 
-## 9. Initial File Targets
+### Batch 1: Engine Skeleton
 
-- `AGENTS.md`: project agent contract.
-- `docs/IMPLEMENTATION_PLAN.md`: this implementation plan.
-- `README.md`: topology tree and authority explanation.
-- `POLICY.md`: write gates, human gates, and red lines.
-- `SCHEMA.md`: schema overview and field definitions.
-- `AUDIENCE.md`: builder/runtime audience split.
-- `prompts/*.md`: intake, digest, reconcile, compose, writeback,
-  lint, repair, and escalate worker prompts.
-- `tests/schemas/`: schema validation fixtures.
+Build:
 
-## 10. Risks and Mitigations
+- `topology init`
+- path resolver
+- ID generator
+- schema loader
+- filesystem transaction helper
+- spool queue helper
 
-- Risk: The project becomes a high-quality note vault instead of an executable
-  builder substrate.
-  Mitigation: Make relationship tests and constraints first-class projection
-  outputs.
+Completion:
 
-- Risk: Agents bypass canonical discipline for speed.
-  Mitigation: Block direct canonical edits with lint/hooks and require mutation
-  packs.
+- new repo can run `topology init`
+- init is idempotent
+- schema fixtures pass
 
-- Risk: Human gates become too frequent.
-  Mitigation: Gate only authority changes, high-impact conflicts, beliefs,
-  operator directives, delete/supersede, scope upgrades, and high-consequence
-  weak merges.
+### Batch 2: Source Packet + Fetch
 
-- Risk: Builder packs become too large.
-  Mitigation: Keep them task-scoped and audience-filtered.
+Build first:
 
-- Risk: OpenClaw runtime memory drifts into canonical authority.
-  Mitigation: OpenClaw writes proposals and runtime observations; apply owns
-  canonical updates.
+- local draft
+- GitHub artifact
+- article/html
+- PDF/arXiv
 
-- Risk: OpenClaw agents mutate the external repository concurrently and corrupt
-  queues or canonical surfaces.
-  Mitigation: require leases for queue writes, append-only events, and lint or
-  hooks that reject direct canonical edits outside apply-worker commits.
+Completion:
 
-## 11. ADR
+- each input creates `raw/packets/src_*`
+- packet includes `content_mode`
+- partial fetches do not break the pipeline
 
-Decision: Use the `Knowledge topology` repository root as the shared canonical
-substrate, replacing the proposed nested `.topology/` directory, with
-queue-driven workers and audience-specific projections.
+### Batch 3: Digest
+
+Build:
+
+- `topology digest`
+- `digest.md` and `digest.json`
+- prompt runner/model adapter
+- fidelity flags and strict output validation
+
+Completion:
+
+- fixture source produces valid digest
+- invalid digest output fails before reconcile
+
+### Batch 4: Reconcile + Mutation Pack
+
+Build:
+
+- registry reader
+- alias matcher
+- conservative merge policy
+- `topology reconcile`
+
+Completion:
+
+- reconcile only emits mutation packs
+- low-confidence matches never silent-merge
+- every pack has preconditions
+
+### Batch 5: Apply Gate
+
+Build:
+
+- `topology apply`
+- auto gate and human gate
+- page/registry transaction writes
+- parity lint
+
+Completion:
+
+- only apply writes canonical
+- stale proposals are rejected
+- high-risk gate classes escalate
+
+### Batch 6: Builder Compose
+
+Build:
+
+- `topology compose builder`
+- `metadata.json`, `brief.md`, `constraints.json`,
+  `relationship-tests.yaml`, `source-bundle.json`, `writeback-targets.json`
+
+Completion:
+
+- real coding task closes one builder loop
+- stale pack detection works
+- operator/runtime-only data does not leak
+
+### Batch 7: Writeback + Antibody Lint
+
+Build:
+
+- `topology writeback`
+- `topology lint`
+- `topology doctor`
+- relationship-test schema
+- missing-antibody, stale-anchor, projection-leakage, public-safe lints
+
+Completion:
+
+- real code change produces mutation pack and relationship-test delta
+- missing builder-critical antibody fails lint
+- code/topology conflict becomes contested
+
+### Batch 8: Codex / Claude Integration
+
+Build:
+
+- topology consume/writeback skills for Codex and Claude
+- Codex project MCP config after CLI stability
+- Claude hooks after CLI stability
+
+Completion:
+
+- Codex and Claude both compose, implement, and write back through same CLI
+
+### Batch 9: OpenClaw Integration
+
+Build last:
+
+- `topology compose openclaw`
+- runtime pack and wiki mirror
+- OpenClaw adapter
+- queue leases around external writes
+
+Completion:
+
+- OpenClaw writes only allowed surfaces
+- memory-wiki reads mirror only
+- runtime-only directives do not leak into builder packs
+
+## 11. Risks
+
+- Queue corruption: use spool files, atomic moves, lease expiry, and
+  `doctor queues`.
+- Generated garbage in Git: enforce `STORAGE.md` through `.gitignore` and lint.
+- Public redistribution risk: default uncertain sources to `excerpt_only` or
+  `local_blob`.
+- Stale proposals: require mutation preconditions and reject stale packs.
+- Second LLM translation loss: keep apply/compile deterministic.
+- Runtime chatter pollution: treat runtime observations as low authority until
+  reconcile/apply promotes them.
+- Prompt injection: isolate untrusted source workers and keep them unprivileged.
+- Adapter drift: all integrations call the same CLI/Python library.
+
+## 12. ADR
+
+Decision: Freeze Batch 0 around a repo-root canonical substrate with spool
+queues, public-safe raw packets, opaque IDs, mutation preconditions,
+deterministic apply/compile, and thin builder/runtime routing.
 
 Drivers:
 
-- Durable cross-session and cross-agent knowledge.
-- Translation fidelity and provenance.
-- Builder usefulness through constraints, relationship tests, and writeback.
+- durable cross-session and cross-runtime knowledge
+- low translation loss
+- public repository safety
+- multi-worker reliability
+- builder-first delivery
 
-Alternatives considered:
+Rejected:
 
-- Four-layer topology from the first draft: too underspecified for ops,
-  projections, and writeback.
-- Nested `.topology/` directory: redundant because this repo is dedicated to
-  the topology itself.
-- OpenClaw-private topology: not shared enough for Codex and Claude builders.
-- Graph/vector primary store: useful for acceleration but weaker as an
-  auditable truth surface.
-
-Why chosen:
-
-- It gives every runtime a small, appropriate interface while preserving one
-  external canonical truth surface.
-- It turns knowledge into actionable construction packs and proof obligations.
-- It keeps human judgment focused on high-value authority decisions.
+- Active shared JSONL queues | unsafe under concurrent multi-agent writes.
+- Nested production `.topology/` directory | redundant because this repo is the
+  topology substrate.
+- OpenClaw as canonical owner | private runtime workspace and memory-wiki are
+  derived runtime surfaces.
+- LLM-generated apply/compile outputs | reintroduces translation loss after
+  digest.
 
 Consequences:
 
-- More up-front schema and CLI work.
-- More explicit gates around canonical writes.
-- Better long-term portability across Codex, Claude, OpenClaw, CI, and future
-  workers.
-- OpenClaw integration must handle external-path access, leases, and writeback
-  boundaries explicitly.
-
-Follow-ups:
-
-- Build Phase 1 skeleton before adding ingestion dependencies.
-- Define JSON schemas before generating real canonical records.
-- Prototype one full builder loop before OpenClaw integration.
+- More contract files before worker code.
+- The CLI/library must become the single business-logic path.
+- OpenClaw integration waits until builder closed loop proves the substrate.

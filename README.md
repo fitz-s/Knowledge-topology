@@ -12,4 +12,9 @@ and future worker jobs.
 ## Current Artifacts
 
 - `AGENTS.md`: operating contract for agents working in this repository.
+- `CLAUDE.md`: thin Claude Code routing contract.
 - `docs/IMPLEMENTATION_PLAN.md`: phased implementation plan and ADR.
+- `POLICY.md`: canonical write gates and trust boundaries.
+- `SCHEMA.md`: frozen Batch 0 data-model contract.
+- `STORAGE.md`: tracked versus local-only storage rules.
+- `QUEUES.md`: spool queue semantics for multi-agent workers.
