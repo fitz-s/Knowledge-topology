@@ -365,6 +365,26 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                         "commit_sha": "abc123",
                         "path": "~/.openclaw/session.log",
                     },
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "OPENCLAW_HOME/config.json",
+                    },
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "Library/Application Support/OpenClaw/session.json",
+                    },
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "OpenClaw/config.json",
+                    },
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "%APPDATA%/OpenClaw/session.json",
+                    },
                 ],
             )
             write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
@@ -386,6 +406,10 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             self.assertNotIn("../private", text)
             self.assertNotIn("C:\\Users", text)
             self.assertNotIn("session.log", text)
+            self.assertNotIn("OPENCLAW_HOME", text)
+            self.assertNotIn("Application Support/OpenClaw", text)
+            self.assertNotIn("OpenClaw/config", text)
+            self.assertNotIn("%APPDATA%", text)
             self.assertNotIn("unsafe_raw_text", text)
             self.assertNotIn("openclaw wiki apply", text)
             self.assertNotIn(".openclaw-wiki/cache", text)
@@ -421,8 +445,20 @@ class P9OpenClawProjectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             init_topology(root)
-            text = "OpenClaw owns canonical truth; OpenClaw owns the canonical truth; OpenClaw controls canonical truth; OpenClaw carries canonical truth; OpenClaw is authoritative for canonical memory; OpenClaw is canonical owner; OpenClaw has canonical authority; OpenClaw is the source of truth; use openclaw wiki apply; raw/local_blobs/secret.pdf; .openclaw-wiki/cache/index; ~/.openclaw/config.json; ~\\.openclaw\\config.json; OPENCLAW_HOME/config.json; ~/Library/Application Support/OpenClaw/session.json; %APPDATA%\\OpenClaw\\session.json; %USERPROFILE%\\.openclaw\\sessions\\s.json; C:\\Users\\leofitz\\private\\secret.py"
-            node = visible_node(summary=text, statement={"unsafe_raw_text": "SECRET RAW"}, file_refs=[{"path": "src/safe.py", "symbol": "~/.openclaw/session.log", "verified_at": "%APPDATA%\\OpenClaw\\session.json"}])
+            text = "OpenClaw owns canonical truth; OpenClaw owns the canonical truth; OpenClaw controls canonical truth; OpenClaw carries canonical truth; OpenClaw is authoritative for canonical memory; OpenClaw is the system of record for topology memory; OpenClaw is the controlling memory for topology decisions; OpenClaw is responsible for final topology memory; OpenClaw is the deciding memory for topology state; OpenClaw governs durable topology memory; OpenClaw is canonical owner; OpenClaw has canonical authority; OpenClaw is the source of truth; use openclaw wiki apply; raw/local_blobs/secret.pdf; .openclaw-wiki/cache/index; ~/.openclaw/config.json; ~\\.openclaw\\config.json; OPENCLAW_HOME/config.json; ~/Library/Application Support/OpenClaw/session.json; %APPDATA%\\OpenClaw\\session.json; %USERPROFILE%\\.openclaw\\sessions\\s.json; C:\\Users\\leofitz\\private\\secret.py"
+            node = visible_node(
+                summary=text,
+                statement={"unsafe_raw_text": "SECRET RAW"},
+                file_refs=[
+                    {
+                        "path": "src/safe.py",
+                        "symbol": "~/.openclaw/session.log",
+                        "verified_at": "%APPDATA%\\OpenClaw\\session.json",
+                        "anchor_kind": "OPENCLAW_CONFIG=/tmp/secret.json",
+                        "excerpt_hash": "%LOCALAPPDATA%\\OpenClaw\\credentials.json",
+                    }
+                ],
+            )
             write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
             projection = write_openclaw_projection(
                 root,
@@ -454,9 +490,16 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 self.assertNotIn("OpenClaw controls canonical truth", rendered)
                 self.assertNotIn("OpenClaw carries canonical truth", rendered)
                 self.assertNotIn("OpenClaw is authoritative", rendered)
+                self.assertNotIn("system of record", rendered)
+                self.assertNotIn("controlling memory", rendered)
+                self.assertNotIn("responsible for final", rendered)
+                self.assertNotIn("deciding memory", rendered)
+                self.assertNotIn("governs durable", rendered)
                 self.assertNotIn("OPENCLAW_HOME", rendered)
                 self.assertNotIn("Application Support/OpenClaw", rendered)
                 self.assertNotIn("%APPDATA%", rendered)
+                self.assertNotIn("%LOCALAPPDATA%", rendered)
+                self.assertNotIn("OPENCLAW_CONFIG", rendered)
                 self.assertNotIn("unsafe_raw_text", rendered)
 
 

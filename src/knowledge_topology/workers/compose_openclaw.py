@@ -62,6 +62,18 @@ RECORD_FIELDS = [
 ]
 FILE_REF_FIELDS = ["repo_id", "commit_sha", "path", "path_at_capture", "line_range", "symbol", "anchor_kind", "excerpt_hash", "verified_at"]
 FORBIDDEN_PATH_PARTS = ("local_blobs", ".openclaw-wiki", ".tmp", "cache")
+FORBIDDEN_ANCHOR_PATH_PARTS = (
+    "local_blobs",
+    ".openclaw-wiki",
+    ".tmp",
+    "/cache/",
+    "openclaw_home",
+    "openclaw/config",
+    "openclaw/session",
+    ".openclaw/session",
+    ".openclaw/config",
+    "library/application support/openclaw",
+)
 FORBIDDEN_TEXT = (
     "raw/local_blobs",
     "local_blobs",
@@ -82,7 +94,9 @@ FORBIDDEN_TEXT = (
     "~\\.openclaw",
     "%userprofile%",
     "%appdata%",
+    "%localappdata%",
     "openclaw_home",
+    "openclaw_config",
     "application support/openclaw",
     "application support\\openclaw",
     "openclaw/session",
@@ -230,19 +244,23 @@ def safe_text(value: Any) -> str | None:
         return None
     if "openclaw" in folded and any(token in folded for token in ("authority", "authoritative", "truth", "owns", "controls", "carries")):
         return None
+    if "openclaw" in folded and any(token in folded for token in ("system of record", "controlling memory", "responsible for final", "deciding memory", "governs", "durable topology memory")):
+        return None
+    if "openclaw" in folded and any(token in folded for token in ("config", "credential", "credentials", "session", "secret", "token", "key")):
+        return None
     return value.strip()
 
 
 def safe_anchor_path(value: Any) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
-    if "\\" in value or value.startswith("~") or re.match(r"^[A-Za-z]:[\\/]", value):
+    folded = value.casefold().replace("\\", "/")
+    if "\\" in value or value.startswith("~") or "%" in value or re.match(r"^[A-Za-z]:[\\/]", value):
         return None
     path = Path(value)
     if path.is_absolute() or ".." in path.parts:
         return None
-    folded = value.casefold()
-    if any(part in folded for part in FORBIDDEN_PATH_PARTS):
+    if any(part in folded for part in FORBIDDEN_ANCHOR_PATH_PARTS):
         return None
     return value
 
