@@ -134,8 +134,6 @@ Runtime record field whitelist:
 - `sensitivity`
 - `audiences`
 - `confidence`
-- `summary`
-- `statement`
 - `source_ids`
 - `claim_ids`
 - `basis_claim_ids`
@@ -234,9 +232,12 @@ Wiki mirror page frontmatter fields:
 Wiki mirror page body:
 
 - starts with a read-only derived-artifact banner
-- includes only `summary` or `statement`, source IDs, and selected file refs
+- includes only record ID, type, authority, source IDs, and selected file refs
 - never includes raw source text, local blob references, `.openclaw-wiki/`
   cache data, OpenClaw config/session paths, or unmanaged generated sections
+- P9 does not project natural-language `summary` or `statement` fields into
+  OpenClaw outputs. Natural-language runtime projection requires a later
+  sanitizer package.
 
 The mirror is not a memory-wiki vault root. P9 must not create `.openclaw-wiki/`
 and must not call or recommend `openclaw wiki apply` as an authority path.
@@ -276,7 +277,7 @@ these sections:
 - runtime instructions: OpenClaw is a consumer, not canonical owner; writeback
   returns through mutation packs
 - bounded records summary using `id`, `kind`, `type`, `status`, `authority`,
-  `summary` or `statement`, and source IDs
+  and source IDs only
 - open gaps summary using the `open_gaps` nested allowlist
 - writeback policy summary using the concrete `writeback_policy` payload
 
@@ -288,6 +289,7 @@ these sections:
 - `.openclaw-wiki/` cache/vault instructions
 - language saying OpenClaw owns canonical truth
 - instructions to use `openclaw wiki apply` as a canonical authority path
+- arbitrary natural-language record `summary` or `statement` text
 
 ## Runtime Visibility Matrix
 

@@ -51,8 +51,6 @@ RECORD_FIELDS = [
     "sensitivity",
     "audiences",
     "confidence",
-    "summary",
-    "statement",
     "source_ids",
     "claim_ids",
     "basis_claim_ids",
@@ -353,10 +351,6 @@ def runtime_record(record: dict[str, Any]) -> dict[str, Any]:
             refs = [safe for item in record[field] if (safe := safe_file_ref(item)) is not None] if isinstance(record[field], list) else []
             if refs:
                 output[field] = sorted(refs, key=lambda item: json.dumps(item, sort_keys=True))
-        elif field in {"summary", "statement"}:
-            text = safe_text(record[field])
-            if text is not None:
-                output[field] = text
         elif field in {"type", "status", "authority", "scope", "sensitivity", "confidence", "updated_at"}:
             text = safe_text(record[field])
             if text is not None:
@@ -402,7 +396,7 @@ def metadata(
 
 
 def wiki_page(record: dict[str, Any], meta: dict[str, Any]) -> str:
-    title = record.get("summary") or record.get("statement") or record["id"]
+    title = record["id"]
     lines = [
         "---",
         f"id: {record['id']}",
@@ -421,10 +415,6 @@ def wiki_page(record: dict[str, Any], meta: dict[str, Any]) -> str:
         "READ ONLY: This page is derived from Knowledge Topology. Do not edit it as canonical memory.",
         "",
     ]
-    if "summary" in record:
-        lines.extend(["## Summary", "", str(record["summary"]), ""])
-    elif "statement" in record:
-        lines.extend(["## Statement", "", str(record["statement"]), ""])
     lines.extend(["## Source IDs", "", json.dumps(record.get("source_ids", [])), ""])
     if record.get("file_refs"):
         lines.extend(["## File Refs", "", json.dumps(record["file_refs"], indent=2, sort_keys=True), ""])
@@ -474,8 +464,7 @@ def render_memory_prompt(pack: dict[str, Any]) -> str:
         "",
     ]
     for record in pack["records"]:
-        text = record.get("summary") or record.get("statement") or ""
-        lines.append(f"- {record['id']}: {text}")
+        lines.append(f"- {record['id']} ({record.get('type', 'unknown')}, {record.get('authority', 'unknown')})")
     lines.extend(["", "## Open Gaps", "", json.dumps(pack["open_gaps"], indent=2, sort_keys=True), ""])
     lines.extend(["## Writeback Policy", "", json.dumps(pack["writeback_policy"], indent=2, sort_keys=True), ""])
     return "\n".join(lines)
