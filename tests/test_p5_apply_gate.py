@@ -115,6 +115,23 @@ class P5ApplyGateTests(unittest.TestCase):
             self.assertEqual((root / "canonical/registry/claims.jsonl").read_text(encoding="utf-8"), before_claims)
             self.assertFalse(list((root / "ops/events").rglob("evt_*.json")))
 
+    def test_non_pending_mutation_path_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mutation = self.make_pending_mutation(root)
+            external = root / "external.json"
+            external.write_text(mutation.read_text(encoding="utf-8"), encoding="utf-8")
+            with self.assertRaises(ApplyError):
+                apply_mutation(
+                    root,
+                    external,
+                    current_canonical_rev="rev_current",
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                )
+            self.assertTrue(external.exists())
+            self.assertTrue(mutation.exists())
+
     def test_human_gate_requires_approval(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -135,6 +152,27 @@ class P5ApplyGateTests(unittest.TestCase):
             applied, _ = apply_mutation(root, mutation, current_canonical_rev="rev_current", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123", approve_human=True)
             self.assertEqual(applied.parent.name, "applied")
 
+    def test_forged_human_gate_is_reclassified_by_apply(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = new_id("nd")
+            init_topology(root)
+            (root / "canonical/registry/nodes.jsonl").write_text(json.dumps({"id": target}) + "\n", encoding="utf-8")
+            draft = root / "draft.md"
+            draft.write_text("source text\n", encoding="utf-8")
+            source_id = ingest_source(root, str(draft), note="curated", depth="deep", audience="builders", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123", base_canonical_rev="rev_current", redistributable="yes").packet_id
+            model = root / ".tmp/digest.json"
+            model.parent.mkdir(exist_ok=True)
+            model.write_text(json.dumps(digest_payload(source_id, target_id=target, edge_type="CONTRADICTS", confidence="high")), encoding="utf-8")
+            digest_json, _ = write_digest_artifacts(root, source_id=source_id, model_adapter=JsonFileDigestAdapter(model))
+            mutation = reconcile_digest(root, digest_json=digest_json, subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123", base_canonical_rev="rev_current")
+            payload = json.loads(mutation.read_text(encoding="utf-8"))
+            payload["requires_human"] = False
+            payload["human_gate_class"] = None
+            mutation.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ApplyError):
+                apply_mutation(root, mutation, current_canonical_rev="rev_current", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123")
+
     def test_missing_evidence_rejects_before_move(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -145,6 +183,46 @@ class P5ApplyGateTests(unittest.TestCase):
             with self.assertRaises(ApplyError):
                 apply_mutation(root, mutation, current_canonical_rev="rev_current", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123")
             self.assertTrue(mutation.exists())
+
+    def test_change_level_missing_evidence_rejects_before_move(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mutation = self.make_pending_mutation(root)
+            payload = json.loads(mutation.read_text(encoding="utf-8"))
+            for change in payload["changes"]:
+                if "digest_id" in change:
+                    change["digest_id"] = new_id("dg")
+                if "basis_digest_id" in change:
+                    change["basis_digest_id"] = new_id("dg")
+            mutation.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ApplyError):
+                apply_mutation(root, mutation, current_canonical_rev="rev_current", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123")
+            self.assertTrue(mutation.exists())
+
+    def test_duplicate_registry_id_rejected_before_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mutation = self.make_pending_mutation(root)
+            payload = json.loads(mutation.read_text(encoding="utf-8"))
+            claim_id = next(change["claim_id"] for change in payload["changes"] if change["op"] == "create_claim")
+            (root / "canonical/registry/claims.jsonl").write_text(json.dumps({"claim_id": claim_id}) + "\n", encoding="utf-8")
+            mutation.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ApplyError):
+                apply_mutation(root, mutation, current_canonical_rev="rev_current", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123")
+            self.assertFalse(list((root / "ops/events").rglob("evt_*.json")))
+
+    def test_failed_write_rolls_back_prior_canonical_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mutation = self.make_pending_mutation(root)
+            registry_file = root / "canonical/registry/nodes.jsonl"
+            registry_file.unlink()
+            registry_file.mkdir()
+            with self.assertRaises(Exception):
+                apply_mutation(root, mutation, current_canonical_rev="rev_current", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123")
+            self.assertTrue(mutation.exists())
+            self.assertFalse(list((root / "canonical/nodes/claim").glob("*.md")))
+            self.assertFalse(list((root / "ops/events").rglob("evt_*.json")))
 
     def test_cli_apply_smoke(self):
         with tempfile.TemporaryDirectory() as tmp:

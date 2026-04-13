@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from knowledge_topology.ids import new_id
+from knowledge_topology.ids import is_valid_id
 from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.schema.mutation_pack import MutationPack, MutationPackError
 from knowledge_topology.schema.loader import load_json
+from knowledge_topology.storage.registry import read_jsonl
 from knowledge_topology.storage.transaction import atomic_write_text
 
 
@@ -36,6 +38,33 @@ def check_evidence(paths: TopologyPaths, evidence_refs: list[str]) -> None:
             raise ApplyError(f"evidence ref does not resolve: {ref}")
 
 
+def evidence_refs_for_changes(pack: MutationPack) -> list[str]:
+    refs = list(pack.evidence_refs)
+    for change in pack.changes:
+        op = change["op"]
+        if op == "create_claim":
+            refs.extend(change["source_ids"])
+            refs.append(change["digest_id"])
+        elif op == "add_edge":
+            refs.append(change["from_id"])
+            refs.append(change["basis_digest_id"])
+        elif op == "open_gap":
+            refs.append(change["digest_id"])
+        elif op == "propose_node":
+            refs.append(change["source_id"])
+            refs.append(change["digest_id"])
+    return refs
+
+
+def requires_human_gate(pack: MutationPack) -> bool:
+    if pack.requires_human:
+        return True
+    for change in pack.changes:
+        if change.get("op") == "add_edge" and change.get("edge_type") in {"CONTRADICTS", "SUPERSEDES"}:
+            return True
+    return False
+
+
 def registry_path(paths: TopologyPaths, op: str) -> Path:
     mapping = {
         "create_claim": "canonical/registry/claims.jsonl",
@@ -53,12 +82,15 @@ def page_path(paths: TopologyPaths, change: dict[str, Any]) -> Path | None:
     if op == "add_edge":
         return paths.resolve(f"canonical/nodes/artifact/{change['edge_id']}.md")
     if op == "propose_node":
-        return paths.resolve(f"canonical/nodes/claim/{change['node_id']}.md")
+        return paths.resolve(f"canonical/nodes/artifact/{change['node_id']}.md")
     return None
 
 
 def record_for_change(change: dict[str, Any], pack: MutationPack) -> dict[str, Any]:
     record = dict(change)
+    if record["op"] == "propose_node":
+        record.setdefault("type", "artifact")
+        record.setdefault("status", "draft")
     record["mutation_pack_id"] = pack.id
     record["applied_at"] = utc_now()
     return record
@@ -104,6 +136,68 @@ def write_audit_event(paths: TopologyPaths, pack: MutationPack) -> Path:
     return event_path
 
 
+def pending_mutation_path(paths: TopologyPaths, mutation_path: str | Path) -> Path:
+    mutation = Path(mutation_path).expanduser().resolve()
+    pending_dir = paths.resolve("mutations/pending")
+    if mutation.parent != pending_dir:
+        raise ApplyError("mutation pack must be under mutations/pending")
+    if not mutation.name.startswith("mut_") or mutation.suffix != ".json":
+        raise ApplyError("pending mutation pack filename must be mut_*.json")
+    return mutation
+
+
+def existing_registry_ids(path: Path) -> set[str]:
+    ids = set()
+    for row in read_jsonl(path):
+        value = row.get("claim_id") or row.get("edge_id") or row.get("gap_id") or row.get("node_id") or row.get("id")
+        if isinstance(value, str):
+            ids.add(value)
+    return ids
+
+
+def id_for_change(change: dict[str, Any]) -> str | None:
+    return change.get("claim_id") or change.get("edge_id") or change.get("gap_id") or change.get("node_id")
+
+
+def preflight_writes(writes: list[tuple[Path, str]], registry_records: list[tuple[Path, dict[str, Any]]]) -> None:
+    seen_paths: set[Path] = set()
+    for path, _ in writes:
+        if path in seen_paths:
+            raise ApplyError(f"duplicate write target: {path}")
+        seen_paths.add(path)
+        if path.exists():
+            raise ApplyError(f"target already exists: {path}")
+        if path.parent.exists() and not path.parent.is_dir():
+            raise ApplyError(f"target parent is not a directory: {path.parent}")
+
+    ids_by_registry: dict[Path, set[str]] = {}
+    for path, record in registry_records:
+        if path.parent.exists() and not path.parent.is_dir():
+            raise ApplyError(f"registry parent is not a directory: {path.parent}")
+        ids_by_registry.setdefault(path, existing_registry_ids(path))
+        record_id = id_for_change(record)
+        if record_id is not None:
+            if record_id in ids_by_registry[path]:
+                raise ApplyError(f"registry id already exists: {record_id}")
+            ids_by_registry[path].add(record_id)
+
+
+def apply_writes_with_rollback(writes: list[tuple[Path, str]], mutation: Path, applied_path: Path) -> None:
+    snapshots: list[tuple[Path, bytes | None]] = []
+    try:
+        for path, text in writes:
+            snapshots.append((path, path.read_bytes() if path.exists() else None))
+            atomic_write_text(path, text)
+        os.replace(mutation, applied_path)
+    except Exception:
+        for path, old_bytes in reversed(snapshots):
+            if old_bytes is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(old_bytes)
+        raise
+
+
 def apply_mutation(
     root: str | Path,
     mutation_path: str | Path,
@@ -114,7 +208,7 @@ def apply_mutation(
     approve_human: bool = False,
 ) -> tuple[Path, Path]:
     paths = TopologyPaths.from_root(root)
-    mutation = Path(mutation_path)
+    mutation = pending_mutation_path(paths, mutation_path)
     pack = MutationPack.from_dict(load_json(mutation))
     if pack.base_canonical_rev != current_canonical_rev:
         raise ApplyError("base_canonical_rev is stale")
@@ -122,9 +216,9 @@ def apply_mutation(
         raise ApplyError("subject_repo_id mismatch")
     if pack.subject_head_sha != subject_head_sha:
         raise ApplyError("subject_head_sha mismatch")
-    if pack.requires_human and not approve_human:
+    if requires_human_gate(pack) and not approve_human:
         raise ApplyError("human-gated mutation requires approval")
-    check_evidence(paths, pack.evidence_refs)
+    check_evidence(paths, evidence_refs_for_changes(pack))
 
     writes: list[tuple[Path, str]] = []
     registry_records: list[tuple[Path, dict[str, Any]]] = []
@@ -135,13 +229,30 @@ def apply_mutation(
         if page is not None:
             writes.append((page, render_page(change, pack)))
 
-    for path, text in writes:
-        atomic_write_text(path, text)
+    preflight_writes(writes, registry_records)
+    now = datetime.now(timezone.utc)
+    event_id = new_id("evt")
+    event_dir = paths.ensure_dir(f"ops/events/{now:%Y/%m/%d}")
+    event_path = event_dir / f"{event_id}.json"
+    event_payload = {
+        "schema_version": "1.0",
+        "id": event_id,
+        "event_type": "mutation_applied",
+        "occurred_at": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "actor": "apply_worker",
+        "summary": f"Applied mutation pack {pack.id}",
+        "refs": {"mutation_pack_id": pack.id},
+        "canonical_rev": pack.base_canonical_rev,
+    }
+    prepared_writes = list(writes)
     for path, record in registry_records:
-        append_jsonl(path, record)
-    event_path = write_audit_event(paths, pack)
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        prepared_writes.append((path, existing + json.dumps(record, sort_keys=True) + "\n"))
+    prepared_writes.append((event_path, json.dumps(event_payload, indent=2, sort_keys=True) + "\n"))
 
     applied_dir = paths.ensure_dir("mutations/applied")
     applied_path = applied_dir / mutation.name
-    os.replace(mutation, applied_path)
+    if applied_path.exists():
+        raise ApplyError(f"applied mutation already exists: {applied_path.name}")
+    apply_writes_with_rollback(prepared_writes, mutation, applied_path)
     return applied_path, event_path
