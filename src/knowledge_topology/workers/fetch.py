@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +34,16 @@ def utc_now_iso() -> str:
 
 def sha256_text(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def require_preconditions(subject_repo_id: str, subject_head_sha: str, base_canonical_rev: str) -> None:
+    for field, value in {
+        "subject_repo_id": subject_repo_id,
+        "subject_head_sha": subject_head_sha,
+        "base_canonical_rev": base_canonical_rev,
+    }.items():
+        if not value.strip():
+            raise FetchError(f"{field} is required")
 
 
 def classify_source(value: str, explicit: str | None = None) -> str:
@@ -66,6 +77,37 @@ def canonicalize_source(value: str, source_type: str) -> tuple[str | None, str |
     if parsed.scheme in {"http", "https"}:
         return value, value
     return str(Path(value).expanduser()), None
+
+
+def parse_github_artifact(value: str) -> dict[str, str | None]:
+    parsed = urlparse(value)
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        raise FetchError("GitHub artifact URL must include owner and repository")
+    repo = f"{parts[0]}/{parts[1]}"
+    artifact: dict[str, str | None] = {
+        "kind": "github_artifact",
+        "repo": repo,
+        "artifact_type": None,
+        "ref": None,
+        "path": None,
+        "commit_sha": None,
+    }
+    if len(parts) >= 4 and parts[2] in {"blob", "tree"}:
+        ref = parts[3]
+        artifact["artifact_type"] = parts[2]
+        artifact["ref"] = ref
+        artifact["path"] = "/".join(parts[4:]) or None
+        if re.fullmatch(r"[0-9a-fA-F]{40}", ref):
+            artifact["commit_sha"] = ref
+    elif len(parts) >= 4 and parts[2] in {"pull", "issues", "commit"}:
+        artifact["artifact_type"] = parts[2]
+        artifact["ref"] = parts[3]
+        if parts[2] == "commit" and re.fullmatch(r"[0-9a-fA-F]{40}", parts[3]):
+            artifact["commit_sha"] = parts[3]
+    else:
+        artifact["artifact_type"] = "repo"
+    return artifact
 
 
 def _safe_excerpt(text: str, limit: int = 800) -> str:
@@ -122,7 +164,9 @@ def build_source_packet(
                 "note": "Locator hash only; full binary content is not fetched in P2 and must stay outside Git.",
             })
     elif resolved_type == "github_artifact":
-        artifacts.append(SourceArtifact(kind="manifest", note="GitHub artifact must be pinned by commit/ref before authority use").to_dict())
+        artifact = parse_github_artifact(value)
+        artifact["note"] = "GitHub artifact metadata captured; commit_sha is null when URL is not pinned to a commit."
+        artifacts.append(artifact)
     else:
         artifacts.append(SourceArtifact(kind="manifest", note="Article fetch deferred; excerpt_only default").to_dict())
 
@@ -164,6 +208,7 @@ def ingest_source(
     source_type: str | None = None,
 ) -> IngestResult:
     paths = TopologyPaths.from_root(root)
+    require_preconditions(subject_repo_id, subject_head_sha, base_canonical_rev)
     resolved_type = classify_source(value, source_type)
     if resolved_type == "local_draft":
         local_path = Path(value).expanduser()

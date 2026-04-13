@@ -19,6 +19,10 @@ class SourcePacketError(ValueError):
     """Raised when a source packet violates the schema contract."""
 
 
+def _blank(value: str | None) -> bool:
+    return value is None or not value.strip()
+
+
 @dataclass(frozen=True)
 class SourceArtifact:
     kind: str
@@ -93,15 +97,15 @@ class SourcePacket:
             raise SourcePacketError(f"unknown redistributable value: {self.redistributable}")
         if self.ingest_depth not in INGEST_DEPTHS:
             raise SourcePacketError(f"unknown ingest_depth: {self.ingest_depth}")
-        if not self.original_url:
+        if _blank(self.original_url):
             raise SourcePacketError("original_url is required")
-        if not self.retrieved_at:
+        if _blank(self.retrieved_at):
             raise SourcePacketError("retrieved_at is required")
-        if not self.curator_note:
+        if _blank(self.curator_note):
             raise SourcePacketError("curator_note is required")
-        if not self.authority:
+        if _blank(self.authority):
             raise SourcePacketError("authority is required")
-        if not self.trust_scope:
+        if _blank(self.trust_scope):
             raise SourcePacketError("trust_scope is required")
         if self.content_mode == "public_text" and self.redistributable != "yes":
             raise SourcePacketError("public_text requires redistributable=yes")

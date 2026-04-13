@@ -17,6 +17,11 @@ class SpoolError(RuntimeError):
     """Raised when a spool operation cannot proceed."""
 
 
+def _require_nonblank(value: str, field: str) -> None:
+    if not value.strip():
+        raise SpoolError(f"{field} is required")
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -59,12 +64,9 @@ def create_job(
     created_by: str,
 ) -> Path:
     ensure_spool(root, kind)
-    if not subject_repo_id:
-        raise SpoolError("subject_repo_id is required")
-    if not subject_head_sha:
-        raise SpoolError("subject_head_sha is required")
-    if not base_canonical_rev:
-        raise SpoolError("base_canonical_rev is required")
+    _require_nonblank(subject_repo_id, "subject_repo_id")
+    _require_nonblank(subject_head_sha, "subject_head_sha")
+    _require_nonblank(base_canonical_rev, "base_canonical_rev")
     job_id = new_id("job")
     now = isoformat(utc_now())
     job = {

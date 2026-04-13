@@ -61,20 +61,16 @@ class P2SourcePacketFetchTests(unittest.TestCase):
                 depth="standard",
                 redistributable="yes",
             )
-            bad = {
-                **packet.to_dict(),
-                "retrieved_at": "",
-            }
             from knowledge_topology.schema.source_packet import SourcePacket
 
-            with self.assertRaises(SourcePacketError):
-                SourcePacket(**bad).validate()
-            bad_authority = {
-                **packet.to_dict(),
-                "authority": "",
-            }
-            with self.assertRaises(SourcePacketError):
-                SourcePacket(**bad_authority).validate()
+            for field in ["original_url", "retrieved_at", "curator_note", "authority", "trust_scope"]:
+                bad = {
+                    **packet.to_dict(),
+                    field: "   ",
+                }
+                with self.subTest(field=field):
+                    with self.assertRaises(SourcePacketError):
+                        SourcePacket(**bad).validate()
         finally:
             Path(path).unlink(missing_ok=True)
 
@@ -150,7 +146,7 @@ class P2SourcePacketFetchTests(unittest.TestCase):
             init_topology(root)
             draft = root / "draft.md"
             draft.write_text("local note", encoding="utf-8")
-            with self.assertRaises(SpoolError):
+            with self.assertRaises(Exception):
                 ingest_source(
                     root,
                     str(draft),
@@ -162,6 +158,20 @@ class P2SourcePacketFetchTests(unittest.TestCase):
                     base_canonical_rev="",
                     redistributable="yes",
                 )
+            self.assertEqual(list((root / "raw/packets").glob("src_*")), [])
+            with self.assertRaises(Exception):
+                ingest_source(
+                    root,
+                    str(draft),
+                    note="blank preconditions",
+                    depth="standard",
+                    audience="builders",
+                    subject_repo_id=" ",
+                    subject_head_sha=" ",
+                    base_canonical_rev=" ",
+                    redistributable="yes",
+                )
+            self.assertEqual(list((root / "raw/packets").glob("src_*")), [])
 
     def test_external_sources_default_to_excerpt_only_partial_packets(self):
         cases = [
@@ -187,6 +197,13 @@ class P2SourcePacketFetchTests(unittest.TestCase):
                 self.assertEqual(packet["source_type"], expected_type)
                 self.assertEqual(packet["content_mode"], "excerpt_only")
                 self.assertEqual(packet["content_status"], "partial")
+                if expected_type == "github_artifact":
+                    github_artifact = packet["artifacts"][0]
+                    self.assertEqual(github_artifact["repo"], "fitz-s/Knowledge-topology")
+                    self.assertEqual(github_artifact["artifact_type"], "blob")
+                    self.assertEqual(github_artifact["ref"], "main")
+                    self.assertEqual(github_artifact["path"], "README.md")
+                    self.assertIsNone(github_artifact["commit_sha"])
 
     def test_pdf_local_blob_keeps_bytes_out_of_packet_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
