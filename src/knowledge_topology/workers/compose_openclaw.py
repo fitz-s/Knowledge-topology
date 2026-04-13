@@ -55,7 +55,6 @@ RECORD_FIELDS = [
     "source_ids",
     "claim_ids",
     "basis_claim_ids",
-    "file_refs",
     "updated_at",
 ]
 FILE_REF_FIELDS = ["repo_id", "commit_sha", "path", "path_at_capture", "line_range", "anchor_kind", "verified_at"]
@@ -88,6 +87,23 @@ FORBIDDEN_ANCHOR_TOKENS = (
     "topology-policy",
     "topology_policy",
     "policy",
+)
+FORBIDDEN_SLUG_TOKENS = (
+    "ignore",
+    "disregard",
+    "override",
+    "bypass",
+    "disable",
+    "delete",
+    "write",
+    "apply",
+    "execute",
+    "shell",
+    "command",
+    "canonical",
+    "policy",
+    "gate",
+    "human",
 )
 FORBIDDEN_TEXT = (
     "raw/local_blobs",
@@ -301,7 +317,10 @@ def safe_metadata_value(value: str, field: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_.:-]+", value):
         raise OpenClawComposeError(f"{field} must be a safe slug or revision token")
     folded = value.casefold()
+    compact = re.sub(r"[^a-z0-9]", "", folded)
     if any(token in folded for token in ("local_blobs", ".openclaw", "openclaw_config", "openclaw_token")):
+        raise OpenClawComposeError(f"{field} contains forbidden projection text")
+    if any(token in compact for token in FORBIDDEN_SLUG_TOKENS):
         raise OpenClawComposeError(f"{field} contains forbidden projection text")
     return value
 
@@ -380,10 +399,6 @@ def runtime_record(record: dict[str, Any]) -> dict[str, Any]:
             values = opaque_id_list(record[field], "clm")
             if values is not None:
                 output[field] = values
-        elif field == "file_refs":
-            refs = [safe for item in record[field] if (safe := safe_file_ref(item)) is not None] if isinstance(record[field], list) else []
-            if refs:
-                output[field] = sorted(refs, key=lambda item: json.dumps(item, sort_keys=True))
         elif field in {"type", "status", "authority", "scope", "sensitivity"}:
             if isinstance(record[field], str):
                 output[field] = record[field]
@@ -454,8 +469,6 @@ def wiki_page(record: dict[str, Any], meta: dict[str, Any]) -> str:
         "",
     ]
     lines.extend(["## Source IDs", "", json.dumps(record.get("source_ids", [])), ""])
-    if record.get("file_refs"):
-        lines.extend(["## File Refs", "", json.dumps(record["file_refs"], indent=2, sort_keys=True), ""])
     return "\n".join(lines)
 
 

@@ -112,8 +112,7 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             record = next(item for item in pack["records"] if item["id"] == visible["id"])
             self.assertNotIn("summary", record)
             self.assertNotIn("statement", record)
-            self.assertEqual(record["file_refs"][0]["path"], "src/example.py")
-            self.assertNotIn("private_note", record["file_refs"][0])
+            self.assertNotIn("file_refs", record)
             self.assertEqual(pack["writeback_policy"]["canonical_write_path"], "mutation_pack_only")
             self.assertIn("projections/openclaw/", pack["writeback_policy"]["forbidden_surfaces"])
             self.assertNotIn("projections/openclaw/", pack["writeback_policy"]["allowed_writeback_surfaces"])
@@ -519,9 +518,7 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             self.assertNotIn(".openclaw-wiki/cache", text)
             pack = json.loads(text)
             record = pack["records"][0]
-            refs_by_path = {item["path"]: item for item in record["file_refs"]}
-            self.assertEqual(refs_by_path["src/safe.py"], {"path": "src/safe.py"})
-            self.assertEqual(refs_by_path["src/also-safe.py"], {"commit_sha": "abc123", "line_range": [2, 4], "path": "src/also-safe.py", "repo_id": "repo_knowledge_topology"})
+            self.assertNotIn("file_refs", record)
 
     def test_openclaw_filters_audiences_and_tags(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -663,7 +660,7 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             record = pack["records"][0]
             self.assertNotIn("confidence", record)
             self.assertNotIn("updated_at", record)
-            self.assertEqual(record["file_refs"], [{"path": "src/safe.py"}])
+            self.assertNotIn("file_refs", record)
 
     def test_openclaw_rejects_unsafe_metadata_values(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -137,31 +137,17 @@ Runtime record field whitelist:
 - `source_ids`
 - `claim_ids`
 - `basis_claim_ids`
-- `file_refs`
 - `updated_at`
 
 Nested field allowlists:
 
-`file_refs` entries:
-
-- `repo_id`
-- `commit_sha`
-- `path`: original tracked file anchor path from the canonical file reference
-- `path_at_capture`
-- `line_range`
-- `symbol`
-- `anchor_kind`
-- `verified_at`
-
 `source_ids`, `claim_ids`, and `basis_claim_ids` are opaque ID string arrays
 only.
 
-`file_refs.path` is not a wiki mirror page path. Local, private, cache, or blob
-paths are excluded from `file_refs`; allowed paths remain code/source anchors.
-`file_refs.symbol`, `file_refs.excerpt_hash`, and record `tags` are not
-projected in P9. `repo_id` must be `repo_`-prefixed, `commit_sha` must be
-hex-shaped, `anchor_kind` is an enum only, and `verified_at`/`updated_at` must
-be timestamp-shaped strings.
+`file_refs` are not projected in P9. File anchors require a later package with
+a verified subject-file index and positive path schema. P9 emits only opaque
+source/claim refs and machine labels. `updated_at` must be a timestamp-shaped
+string.
 
 `open_gaps` entries:
 
@@ -234,7 +220,7 @@ Wiki mirror page frontmatter fields:
 Wiki mirror page body:
 
 - starts with a read-only derived-artifact banner
-- includes only record ID, type, authority, source IDs, and selected file refs
+- includes only record ID, type, authority, and source IDs
 - never includes raw source text, local blob references, `.openclaw-wiki/`
   cache data, OpenClaw config/session paths, or unmanaged generated sections
 - P9 does not project natural-language `summary` or `statement` fields into
