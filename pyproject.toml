@@ -10,5 +10,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.scripts]
+topology = "knowledge_topology.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
