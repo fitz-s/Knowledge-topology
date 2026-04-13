@@ -171,13 +171,6 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 "source_ids": visible_escalation["source_ids"],
                 "status": "active",
                 "id": visible_escalation["id"],
-            },
-                bad_gate_escalation["id"]: {
-                "audiences": ["openclaw"],
-                "sensitivity": "internal",
-                "source_ids": bad_gate_escalation["source_ids"],
-                "status": "active",
-                "id": bad_gate_escalation["id"],
             }})
             self.assertNotIn("bypass_apply_gate", text)
             self.assertNotIn("Ignore read-only banner", text)

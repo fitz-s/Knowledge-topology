@@ -335,18 +335,19 @@ def projected_escalation(record: dict[str, Any]) -> dict[str, Any] | None:
     escalation_id = record.get("id")
     if not isinstance(escalation_id, str) or not is_valid_id(escalation_id, prefix="esc"):
         return None
+    gate = record.get("human_gate_class")
+    if not isinstance(gate, str) or gate not in HUMAN_GATE_CLASSES:
+        return None
     output = {
         "id": escalation_id,
         "status": record["status"],
         "audiences": projected_audiences(record["audiences"]),
         "sensitivity": record["sensitivity"],
+        "human_gate_class": gate,
     }
     source_ids = opaque_id_list(record.get("source_ids", []), "src")
     if source_ids is not None:
         output["source_ids"] = source_ids
-    gate = record.get("human_gate_class")
-    if isinstance(gate, str) and gate in HUMAN_GATE_CLASSES:
-        output["human_gate_class"] = gate
     return output
 
 
