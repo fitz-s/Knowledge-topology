@@ -9,6 +9,7 @@ from knowledge_topology.schema.source_packet import SourcePacketError
 from knowledge_topology.adapters.digest_model import JsonFileDigestAdapter
 from knowledge_topology.schema.digest import DigestError
 from knowledge_topology.schema.mutation_pack import MutationPackError
+from knowledge_topology.workers.apply import ApplyError, apply_mutation
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
 from knowledge_topology.workers.fetch import FetchError, ingest_source
 from knowledge_topology.workers.init import init_topology
@@ -47,6 +48,14 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
     reconcile_parser.add_argument("--base-canonical-rev", required=True, help="base canonical revision")
     reconcile_parser.add_argument("--proposed-by", default="reconciler", help="proposal author")
+
+    apply_parser = subparsers.add_parser("apply", help="apply a pending mutation pack")
+    apply_parser.add_argument("mutation_pack", help="path to pending mutation pack JSON")
+    apply_parser.add_argument("--root", default=".", help="topology root")
+    apply_parser.add_argument("--current-canonical-rev", required=True, help="current canonical revision")
+    apply_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    apply_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+    apply_parser.add_argument("--approve-human", action="store_true", help="approve human-gated mutation")
 
     return parser
 
@@ -104,6 +113,21 @@ def main(argv: list[str] | None = None) -> int:
         except (DigestError, MutationPackError, ReconcileError, ValueError) as exc:
             parser.exit(2, f"topology reconcile: {exc}\n")
         print(f"created mutation pack: {mutation_path}")
+        return 0
+    if args.command == "apply":
+        try:
+            applied_path, event_path = apply_mutation(
+                Path(args.root).expanduser().resolve(),
+                args.mutation_pack,
+                current_canonical_rev=args.current_canonical_rev,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+                approve_human=args.approve_human,
+            )
+        except (ApplyError, MutationPackError, ValueError) as exc:
+            parser.exit(2, f"topology apply: {exc}\n")
+        print(f"applied mutation pack: {applied_path}")
+        print(f"wrote audit event: {event_path}")
         return 0
     parser.print_help()
     return 0
