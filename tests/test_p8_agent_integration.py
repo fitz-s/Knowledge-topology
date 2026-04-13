@@ -37,6 +37,20 @@ class P8AgentIntegrationTests(unittest.TestCase):
                 self.assertFalse(result.allowed)
                 self.assertIn("canonical", result.reason)
 
+    def test_guard_denies_case_variant_canonical_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            cases = [
+                event("Write", "Canonical/nodes/case_bypass.md"),
+                event("Write", "CANONICAL/registry/nodes.jsonl"),
+                event("Edit", str(root / "Canonical/registry/nodes.jsonl")),
+            ]
+            for payload in cases:
+                result = guard_claude_pre_tool_use(root, payload)
+                self.assertFalse(result.allowed)
+                self.assertIn("canonical", result.reason)
+
     def test_guard_allows_mutation_and_writeback_surfaces(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

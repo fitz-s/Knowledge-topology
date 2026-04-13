@@ -60,14 +60,13 @@ def normalize_candidate(raw_path: str, *, root: Path, cwd: Path) -> Path | None:
     return resolved
 
 
-def is_under(path: Path, parent: Path) -> bool:
-    return path == parent or parent in path.parents
-
-
 def is_denied_surface(path: Path, root: Path) -> bool:
-    canonical = (root / "canonical").resolve(strict=False)
-    canonical_registry = (root / "canonical/registry").resolve(strict=False)
-    return is_under(path, canonical) or is_under(path, canonical_registry)
+    try:
+        relative_parts = path.relative_to(root).parts
+    except ValueError:
+        return True
+    folded = [part.casefold() for part in relative_parts]
+    return bool(folded) and folded[0] == "canonical"
 
 
 def validate_payload(tool_name: str, tool_input: Any) -> str | None:
