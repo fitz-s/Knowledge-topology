@@ -81,9 +81,11 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             hidden = visible_node(sensitivity="operator_only", summary="hidden operator data")
             builder_only = visible_node(audiences=["builders"], summary="builder only")
             operator_directive = visible_node(type="operator_directive", audiences=["all"], sensitivity="internal", summary="operator directive")
+            malformed_operator_directive = visible_node(type="operator_directive ", audiences=["all"], sensitivity="internal", summary="operator directive variant")
+            malformed_type = visible_node(type=["operator_directive"], summary="malformed type")
             runtime_observation = visible_node(type="runtime_observation", authority="runtime_observed", sensitivity="runtime_only", scope="runtime", summary="runtime fact")
             malformed = visible_node(audiences="openclaw", summary="bad audience")
-            write_jsonl(root / "canonical/registry/nodes.jsonl", [hidden, runtime_observation, visible, builder_only, operator_directive, malformed])
+            write_jsonl(root / "canonical/registry/nodes.jsonl", [hidden, runtime_observation, visible, builder_only, operator_directive, malformed_operator_directive, malformed_type, malformed])
 
             projection = write_openclaw_projection(
                 root,
@@ -105,6 +107,8 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             self.assertNotIn("raw/local_blobs", text)
             self.assertNotIn("hidden operator data", text)
             self.assertNotIn("operator directive", text)
+            self.assertNotIn("operator directive variant", text)
+            self.assertNotIn("malformed type", text)
             record = next(item for item in pack["records"] if item["id"] == visible["id"])
             self.assertEqual(record["file_refs"][0]["path"], "src/example.py")
             self.assertNotIn("private_note", record["file_refs"][0])
@@ -417,8 +421,8 @@ class P9OpenClawProjectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             init_topology(root)
-            text = "OpenClaw owns canonical truth; OpenClaw is canonical owner; use openclaw wiki apply; raw/local_blobs/secret.pdf; .openclaw-wiki/cache/index; ~/.openclaw/config.json; C:\\Users\\leofitz\\private\\secret.py"
-            node = visible_node(summary=text, statement={"unsafe_raw_text": "SECRET RAW"}, file_refs=[{"path": "src/safe.py", "symbol": "~/.openclaw/session.log"}])
+            text = "OpenClaw owns canonical truth; OpenClaw is canonical owner; OpenClaw has canonical authority; OpenClaw is the source of truth; use openclaw wiki apply; raw/local_blobs/secret.pdf; .openclaw-wiki/cache/index; ~/.openclaw/config.json; ~\\.openclaw\\config.json; %USERPROFILE%\\.openclaw\\sessions\\s.json; C:\\Users\\leofitz\\private\\secret.py"
+            node = visible_node(summary=text, statement={"unsafe_raw_text": "SECRET RAW"}, file_refs=[{"path": "src/safe.py", "symbol": "~/.openclaw/session.log", "verified_at": "%USERPROFILE%\\.openclaw\\sessions\\s.json"}])
             write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
             projection = write_openclaw_projection(
                 root,
@@ -441,8 +445,12 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 self.assertNotIn("raw/local_blobs", rendered)
                 self.assertNotIn(".openclaw-wiki/cache", rendered)
                 self.assertNotIn("~/.openclaw/config", rendered)
+                self.assertNotIn("~\\.openclaw", rendered)
+                self.assertNotIn("%USERPROFILE%", rendered)
                 self.assertNotIn("C:\\Users", rendered)
                 self.assertNotIn("OpenClaw is canonical owner", rendered)
+                self.assertNotIn("OpenClaw has canonical authority", rendered)
+                self.assertNotIn("OpenClaw is the source of truth", rendered)
                 self.assertNotIn("unsafe_raw_text", rendered)
 
 

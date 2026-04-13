@@ -25,6 +25,22 @@ VALID_SCOPE = {"global", "repo", "operator", "runtime"}
 VALID_AUTHORITY = {"source_grounded", "repo_observed", "runtime_observed", "fitz_curated", "model_inferred"}
 VALID_STATUS = {"draft", "active", "contested", "superseded", "rejected"}
 VISIBLE_STATUS = {"active", "draft", "contested"}
+VALID_NODE_TYPES = {
+    "finding",
+    "method",
+    "claim",
+    "assumption",
+    "question",
+    "fitz_belief",
+    "decision",
+    "invariant",
+    "interface",
+    "component",
+    "runtime_observation",
+    "operator_directive",
+    "artifact",
+    "task_lesson",
+}
 RECORD_FIELDS = [
     "id",
     "kind",
@@ -53,12 +69,20 @@ FORBIDDEN_TEXT = (
     "openclaw wiki apply",
     "openclaw owns canonical",
     "openclaw is canonical",
+    "openclaw has canonical authority",
+    "canonical authority",
+    "source of truth",
     "canonical owner",
     "owns canonical truth",
     "unsafe_raw_text",
     "/users/",
     "\\users\\",
     "~/.openclaw",
+    "~\\.openclaw",
+    "%userprofile%",
+    "\\.openclaw",
+    ".openclaw\\",
+    "c:\\",
     ".openclaw/",
     "../",
     "..\\",
@@ -87,7 +111,7 @@ WRITEBACK_POLICY = {
         "digests/",
         "projections/openclaw/",
         ".openclaw-wiki/",
-        "~/.openclaw/",
+        "openclaw_private_config_session_credential_paths",
     ],
     "ops_events_policy": "semantic_events_only_no_queue_churn",
     "required_preconditions": ["canonical_rev", "subject_repo_id", "subject_head_sha"],
@@ -236,6 +260,9 @@ def safe_file_ref(item: Any) -> dict[str, Any] | None:
 
 
 def visible_to_openclaw(record: dict[str, Any]) -> bool:
+    record_type = record.get("type")
+    if not isinstance(record_type, str) or record_type.strip() != record_type or record_type not in VALID_NODE_TYPES:
+        return False
     if projected_audiences(record.get("audiences")) is None:
         return False
     if record.get("sensitivity") not in VALID_SENSITIVITY:
@@ -250,9 +277,9 @@ def visible_to_openclaw(record: dict[str, Any]) -> bool:
         return False
     if record.get("sensitivity") == "operator_only" or record.get("scope") == "operator":
         return False
-    if record.get("type") == "operator_directive":
+    if record_type == "operator_directive":
         return False
-    if record.get("type") == "runtime_observation" and record.get("authority") != "runtime_observed":
+    if record_type == "runtime_observation" and record.get("authority") != "runtime_observed":
         return False
     return True
 
