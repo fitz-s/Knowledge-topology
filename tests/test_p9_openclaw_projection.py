@@ -925,9 +925,9 @@ class P9OpenClawProjectionTests(unittest.TestCase):
 
     def test_openclaw_rejects_symlinked_input_surfaces(self):
         cases = [
-            ("canonical/registry/nodes.jsonl", "nodes registry is invalid"),
-            ("ops/gaps/open.jsonl", "open gaps registry is invalid"),
-            ("ops/escalations", "escalation input directory is invalid"),
+            ("canonical/registry/nodes.jsonl", "nodes input path is invalid"),
+            ("ops/gaps/open.jsonl", "open gaps input path is invalid"),
+            ("ops/escalations", "escalation input path is invalid"),
         ]
         for relative, message in cases:
             with tempfile.TemporaryDirectory() as tmp:
@@ -948,6 +948,37 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                         target.unlink()
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.symlink_to(target_payload)
+                with self.assertRaisesRegex(ValueError, message):
+                    write_openclaw_projection(
+                        root,
+                        project_id="openclaw_project",
+                        canonical_rev="rev_current",
+                        subject_repo_id="repo_knowledge_topology",
+                        subject_head_sha="abc123",
+                        allow_dirty=True,
+                        clock=lambda: FIXED_TIME,
+                    )
+
+    def test_openclaw_rejects_parent_symlinked_input_surfaces(self):
+        cases = [
+            ("canonical/registry", "nodes input path is invalid"),
+            ("canonical", "nodes input path is invalid"),
+            ("ops/gaps", "open gaps input path is invalid"),
+            ("ops", "open gaps input path is invalid"),
+        ]
+        for relative, message in cases:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                init_topology(root)
+                local_blobs = root / "raw/local_blobs/evil"
+                local_blobs.mkdir(parents=True)
+                target = root / relative
+                if target.is_dir() and not target.is_symlink():
+                    shutil.rmtree(target)
+                elif target.exists():
+                    target.unlink()
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.symlink_to(local_blobs, target_is_directory=True)
                 with self.assertRaisesRegex(ValueError, message):
                     write_openclaw_projection(
                         root,

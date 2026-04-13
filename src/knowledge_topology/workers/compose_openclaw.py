@@ -186,10 +186,26 @@ def projected_audiences(value: Any) -> list[str] | None:
     return safe or None
 
 
-def safe_read_jsonl(paths: TopologyPaths, relative: str, label: str) -> list[dict[str, Any]]:
+def preflight_input_path(paths: TopologyPaths, relative: str, label: str, *, kind: str) -> Path:
     path = paths.root / relative
-    if path.is_symlink() or (path.exists() and not path.is_file()):
+    current = paths.root
+    for part in Path(relative).parts[:-1]:
+        current = current / part
+        if current.is_symlink():
+            raise OpenClawComposeError(f"{label} input path is invalid: parent must not be a symlink")
+        if current.exists() and not current.is_dir():
+            raise OpenClawComposeError(f"{label} input path is invalid: parent must be a directory")
+    if path.is_symlink():
+        raise OpenClawComposeError(f"{label} input path is invalid: input must not be a symlink")
+    if kind == "file" and path.exists() and not path.is_file():
         raise OpenClawComposeError(f"{label} registry is invalid: input must be a regular file")
+    if kind == "dir" and path.exists() and not path.is_dir():
+        raise OpenClawComposeError(f"{label} input directory is invalid: input must be a regular directory")
+    return path
+
+
+def safe_read_jsonl(paths: TopologyPaths, relative: str, label: str) -> list[dict[str, Any]]:
+    path = preflight_input_path(paths, relative, label, kind="file")
     try:
         return read_jsonl(path)
     except (OSError, RegistryError) as exc:
@@ -372,9 +388,7 @@ def projected_gaps(paths: TopologyPaths, visible_node_ids: set[str]) -> list[dic
 
 def projected_escalations(paths: TopologyPaths) -> list[dict[str, Any]]:
     escalations = []
-    directory = paths.root / "ops/escalations"
-    if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
-        raise OpenClawComposeError("escalation input directory is invalid: input must be a regular directory")
+    directory = preflight_input_path(paths, "ops/escalations", "escalation", kind="dir")
     for path in sorted(directory.glob("*.json")):
         if path.is_symlink() or not path.is_file():
             raise OpenClawComposeError(f"escalation input must be a regular file: {path}")
