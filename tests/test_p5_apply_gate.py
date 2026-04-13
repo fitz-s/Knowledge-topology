@@ -18,6 +18,7 @@ from knowledge_topology.workers.fetch import ingest_source
 from knowledge_topology.workers.init import init_topology
 from knowledge_topology.workers.reconcile import reconcile_digest
 from knowledge_topology.adapters.digest_model import JsonFileDigestAdapter
+from knowledge_topology.storage.registry import Registry
 
 
 def digest_payload(source_id: str, *, target_id: str = "NEW", edge_type: str = "SUPPORTS", confidence: str = "low") -> dict:
@@ -97,6 +98,7 @@ class P5ApplyGateTests(unittest.TestCase):
             self.assertTrue((root / "canonical/registry/claims.jsonl").read_text(encoding="utf-8").strip())
             self.assertTrue((root / "canonical/registry/nodes.jsonl").read_text(encoding="utf-8").strip())
             self.assertTrue(list((root / "canonical/nodes/claim").glob("*.md")))
+            self.assertEqual(len(Registry(root).known_node_ids()), 1)
 
     def test_apply_preserves_multiple_records_for_same_registry_and_artifact_pages(self):
         with tempfile.TemporaryDirectory() as tmp:

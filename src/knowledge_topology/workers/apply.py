@@ -90,6 +90,7 @@ def page_path(paths: TopologyPaths, change: dict[str, Any]) -> Path | None:
 def record_for_change(change: dict[str, Any], pack: MutationPack) -> dict[str, Any]:
     record = dict(change)
     if record["op"] == "propose_node":
+        record["id"] = record["node_id"]
         record.setdefault("type", "artifact")
         record.setdefault("status", "draft")
     record["mutation_pack_id"] = pack.id
