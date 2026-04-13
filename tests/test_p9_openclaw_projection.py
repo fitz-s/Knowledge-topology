@@ -421,8 +421,8 @@ class P9OpenClawProjectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             init_topology(root)
-            text = "OpenClaw owns canonical truth; OpenClaw is canonical owner; OpenClaw has canonical authority; OpenClaw is the source of truth; use openclaw wiki apply; raw/local_blobs/secret.pdf; .openclaw-wiki/cache/index; ~/.openclaw/config.json; ~\\.openclaw\\config.json; %USERPROFILE%\\.openclaw\\sessions\\s.json; C:\\Users\\leofitz\\private\\secret.py"
-            node = visible_node(summary=text, statement={"unsafe_raw_text": "SECRET RAW"}, file_refs=[{"path": "src/safe.py", "symbol": "~/.openclaw/session.log", "verified_at": "%USERPROFILE%\\.openclaw\\sessions\\s.json"}])
+            text = "OpenClaw owns canonical truth; OpenClaw owns the canonical truth; OpenClaw controls canonical truth; OpenClaw carries canonical truth; OpenClaw is authoritative for canonical memory; OpenClaw is canonical owner; OpenClaw has canonical authority; OpenClaw is the source of truth; use openclaw wiki apply; raw/local_blobs/secret.pdf; .openclaw-wiki/cache/index; ~/.openclaw/config.json; ~\\.openclaw\\config.json; OPENCLAW_HOME/config.json; ~/Library/Application Support/OpenClaw/session.json; %APPDATA%\\OpenClaw\\session.json; %USERPROFILE%\\.openclaw\\sessions\\s.json; C:\\Users\\leofitz\\private\\secret.py"
+            node = visible_node(summary=text, statement={"unsafe_raw_text": "SECRET RAW"}, file_refs=[{"path": "src/safe.py", "symbol": "~/.openclaw/session.log", "verified_at": "%APPDATA%\\OpenClaw\\session.json"}])
             write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
             projection = write_openclaw_projection(
                 root,
@@ -451,6 +451,12 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 self.assertNotIn("OpenClaw is canonical owner", rendered)
                 self.assertNotIn("OpenClaw has canonical authority", rendered)
                 self.assertNotIn("OpenClaw is the source of truth", rendered)
+                self.assertNotIn("OpenClaw controls canonical truth", rendered)
+                self.assertNotIn("OpenClaw carries canonical truth", rendered)
+                self.assertNotIn("OpenClaw is authoritative", rendered)
+                self.assertNotIn("OPENCLAW_HOME", rendered)
+                self.assertNotIn("Application Support/OpenClaw", rendered)
+                self.assertNotIn("%APPDATA%", rendered)
                 self.assertNotIn("unsafe_raw_text", rendered)
 
 

@@ -72,6 +72,7 @@ FORBIDDEN_TEXT = (
     "openclaw has canonical authority",
     "canonical authority",
     "source of truth",
+    "canonical truth",
     "canonical owner",
     "owns canonical truth",
     "unsafe_raw_text",
@@ -80,6 +81,14 @@ FORBIDDEN_TEXT = (
     "~/.openclaw",
     "~\\.openclaw",
     "%userprofile%",
+    "%appdata%",
+    "openclaw_home",
+    "application support/openclaw",
+    "application support\\openclaw",
+    "openclaw/session",
+    "openclaw\\session",
+    "openclaw/config",
+    "openclaw\\config",
     "\\.openclaw",
     ".openclaw\\",
     "c:\\",
@@ -216,6 +225,10 @@ def safe_text(value: Any) -> str | None:
         return None
     folded = value.casefold()
     if any(token in folded for token in FORBIDDEN_TEXT):
+        return None
+    if "openclaw" in folded and "canonical" in folded:
+        return None
+    if "openclaw" in folded and any(token in folded for token in ("authority", "authoritative", "truth", "owns", "controls", "carries")):
         return None
     return value.strip()
 
