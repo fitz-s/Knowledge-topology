@@ -100,7 +100,36 @@ Knowledge-topology/
 Production topology data lives at repo root. Nested `.topology/` paths may
 exist only in migration or compatibility fixtures.
 
-## 4. Storage Contract
+## 4. Subject and Revision Model
+
+The topology can describe many external repositories or projects. Every
+implementation-facing artifact must name the subject it is about.
+
+`SUBJECTS.yaml` is the registry for stable subject IDs. A subject record will
+eventually include:
+
+- `subject_repo_id`
+- human-readable `name`
+- local path or remote URL
+- default branch
+- current observed head SHA
+- visibility and sensitivity notes
+
+`canonical_rev` is the revision of this topology repository's canonical truth.
+Until a dedicated canonical revision file exists, it is the Git commit SHA of
+this repository at the time of compile/apply.
+
+Every mutation pack, job, file reference, builder pack, and writeback envelope
+must include enough revision data to decide whether it is stale:
+
+- `base_canonical_rev`
+- `subject_repo_id`
+- `subject_head_sha`
+
+Apply and writeback must reject stale preconditions rather than attempting to
+repair them silently. Re-reconcile against current canonical state instead.
+
+## 5. Storage Contract
 
 Tracked:
 
@@ -130,7 +159,7 @@ Local-only or generated:
 
 The `.gitignore` enforces the local-only side of this boundary.
 
-## 5. Queue Contract
+## 6. Queue Contract
 
 Active jobs use spool directories:
 
@@ -158,7 +187,7 @@ Workers use atomic move/rename for state transitions:
 Durable audit uses `ops/events/events.jsonl`. Events are append-only history,
 not the active queue.
 
-## 6. Public-Safe Source Packets
+## 7. Public-Safe Source Packets
 
 Every source packet declares `content_mode`:
 
@@ -172,7 +201,7 @@ Every source packet declares `redistributable`: `yes`, `no`, or `unknown`.
 Public repositories default to `excerpt_only` or `local_blob` unless the source
 is clearly redistributable.
 
-## 7. Core Schema
+## 8. Core Schema
 
 All durable entities use immutable opaque IDs:
 
@@ -225,7 +254,39 @@ Builder pack fixed outputs:
 `metadata.json` records `canonical_rev`, `subject_repo_id`,
 `subject_head_sha`, and `generated_at`.
 
-## 8. Worker Lifecycle
+## 9. Deterministic Surfaces
+
+LLM-assisted stages:
+
+- digest
+- reconcile proposal drafting
+- optional brief prose in `brief.md`
+
+Deterministic stages:
+
+- ID generation
+- path resolution
+- spool queue transitions
+- source packet validation
+- mutation precondition checks
+- apply transactions
+- registry parity lint
+- builder-pack load-bearing outputs
+- OpenClaw runtime projection filtering
+- public-safe lint
+- doctor checks
+
+The builder-pack load-bearing files must be compiled from canonical records:
+
+- `metadata.json`
+- `constraints.json`
+- `relationship-tests.yaml`
+- `source-bundle.json`
+- `writeback-targets.json`
+
+This avoids a second translation-loss pass during composition.
+
+## 10. Worker Lifecycle
 
 ### Intake
 
@@ -305,7 +366,36 @@ OpenClaw writeback emits lower-authority runtime observations, standing orders,
 operator preference proposals, and session summaries. Runtime observations do
 not auto-promote to active canonical truth.
 
-## 9. Integration Strategy
+## 11. Command Surface
+
+All business logic goes through one Python package and CLI. Integrations are
+thin facades.
+
+Initial CLI commands:
+
+- `topology init`
+- `topology ingest`
+- `topology digest`
+- `topology reconcile`
+- `topology apply`
+- `topology compose builder`
+- `topology compose openclaw`
+- `topology writeback`
+- `topology lint`
+- `topology doctor`
+
+Doctor subcommands:
+
+- `topology doctor queues`: expire leases and requeue abandoned jobs.
+- `topology doctor stale-anchors`: find file refs whose subject head moved.
+- `topology doctor public-safe`: find tracked unsafe raw content.
+- `topology doctor projections`: find stale or leaking projections.
+- `topology doctor canonical-parity`: compare node pages and registries.
+
+Adapters may call the CLI or library, but must not implement separate business
+rules.
+
+## 12. Integration Strategy
 
 Codex:
 
@@ -332,7 +422,24 @@ OpenClaw:
   `wiki-mirror/`.
 - Memory-wiki consumes the mirror; it does not own authority.
 
-## 10. Execution Batches
+## 13. Maintenance Invariants
+
+These invariants must remain true as the system grows:
+
+- Queue jobs are one file per job and move by atomic rename.
+- Canonical state changes only through apply.
+- Runtime observations start with low authority.
+- Stale mutation packs are rejected.
+- Builder packs are stale when their canonical or subject revision changes.
+- Builder packs traverse only allowed edge types and include bounded nodes,
+  sources, and file refs.
+- Operator-only and runtime-only records cannot leak into builder packs.
+- Public repository safety is checked before source packet tracking.
+- File refs carry `repo_id`, `commit_sha`, and `verified_at`.
+- Every builder-critical invariant has a relationship-test spec.
+- CLI/library code owns business rules; adapters never fork them.
+
+## 14. Execution Batches
 
 ### Batch 0: Spec Freeze
 
@@ -356,6 +463,9 @@ Completion:
 - spool queue semantics are in `QUEUES.md`
 - source/digest/node/mutation/builder-pack fields are in `SCHEMA.md`
 - root `AGENTS.md` and `CLAUDE.md` remain thin routing files
+- `.gitignore` enforces local-only generated surfaces
+- `pyproject.toml`, package marker, and fixture directory exist
+- no worker behavior is introduced yet
 
 ### Batch 1: Engine Skeleton
 
@@ -373,6 +483,8 @@ Completion:
 - new repo can run `topology init`
 - init is idempotent
 - schema fixtures pass
+- queue helper can create, lease, complete, fail, and requeue a fixture job
+- path helper never creates nested production `.topology/`
 
 ### Batch 2: Source Packet + Fetch
 
@@ -388,6 +500,8 @@ Completion:
 - each input creates `raw/packets/src_*`
 - packet includes `content_mode`
 - partial fetches do not break the pipeline
+- public-safe lint catches unsafe tracked blobs
+- untrusted fetched content never gains canonical write permissions
 
 ### Batch 3: Digest
 
@@ -402,6 +516,9 @@ Completion:
 
 - fixture source produces valid digest
 - invalid digest output fails before reconcile
+- digest separates author claims, direct evidence, model inference, contested
+  points, and unresolved ambiguity
+- digest records fidelity flags
 
 ### Batch 4: Reconcile + Mutation Pack
 
@@ -417,6 +534,8 @@ Completion:
 - reconcile only emits mutation packs
 - low-confidence matches never silent-merge
 - every pack has preconditions
+- stale `base_canonical_rev` is detectable before apply
+- mutation pack evidence refs resolve
 
 ### Batch 5: Apply Gate
 
@@ -432,6 +551,8 @@ Completion:
 - only apply writes canonical
 - stale proposals are rejected
 - high-risk gate classes escalate
+- page and registry parity lint passes after apply
+- apply writes durable audit events
 
 ### Batch 6: Builder Compose
 
@@ -446,6 +567,8 @@ Completion:
 - real coding task closes one builder loop
 - stale pack detection works
 - operator/runtime-only data does not leak
+- load-bearing pack files are deterministic compiler outputs
+- builder-critical invariants emit relationship-test specs
 
 ### Batch 7: Writeback + Antibody Lint
 
@@ -462,6 +585,8 @@ Completion:
 - real code change produces mutation pack and relationship-test delta
 - missing builder-critical antibody fails lint
 - code/topology conflict becomes contested
+- stale file refs are reported by doctor
+- projection leakage lint runs
 
 ### Batch 8: Codex / Claude Integration
 
@@ -474,6 +599,8 @@ Build:
 Completion:
 
 - Codex and Claude both compose, implement, and write back through same CLI
+- Claude hooks and Codex skills call shared CLI/library code only
+- root instruction files remain routing files, not procedure dumps
 
 ### Batch 9: OpenClaw Integration
 
@@ -489,8 +616,23 @@ Completion:
 - OpenClaw writes only allowed surfaces
 - memory-wiki reads mirror only
 - runtime-only directives do not leak into builder packs
+- external-root queue writes use leases
+- OpenClaw runtime observations do not auto-promote to active canonical truth
 
-## 11. Risks
+## 15. Stop Conditions Before Coding
+
+Do not start worker implementation until Batch 0 is committed and pushed.
+
+Do not start MCP, hooks, Claude skills, Codex skills, or OpenClaw adapters until
+the CLI/library contracts are exercised by local tests.
+
+Do not start OpenClaw integration until one builder closed loop has completed
+against a real coding task.
+
+Do not ingest full third-party blobs into tracked files unless `content_mode`
+and `redistributable` make it safe.
+
+## 16. Risks
 
 - Queue corruption: use spool files, atomic moves, lease expiry, and
   `doctor queues`.
@@ -504,7 +646,7 @@ Completion:
 - Prompt injection: isolate untrusted source workers and keep them unprivileged.
 - Adapter drift: all integrations call the same CLI/Python library.
 
-## 12. ADR
+## 17. ADR
 
 Decision: Freeze Batch 0 around a repo-root canonical substrate with spool
 queues, public-safe raw packets, opaque IDs, mutation preconditions,
