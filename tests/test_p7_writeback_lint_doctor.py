@@ -240,6 +240,41 @@ class P7WritebackLintDoctorTests(unittest.TestCase):
             self.assertFalse(result.ok)
             self.assertIn("stale anchor old != new", result.messages[0])
 
+    def test_doctor_reports_malformed_file_refs_without_crashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            (root / "canonical/registry/file_refs.jsonl").write_text("{bad json\n", encoding="utf-8")
+            result = stale_anchors(root, subject_repo_id="repo_knowledge_topology", subject_head_sha="new")
+            self.assertFalse(result.ok)
+            self.assertIn("file_refs registry is invalid", result.messages[0])
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(SRC)
+            cli = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "knowledge_topology.cli",
+                    "doctor",
+                    "stale-anchors",
+                    "--root",
+                    tmp,
+                    "--subject",
+                    "repo_knowledge_topology",
+                    "--subject-head-sha",
+                    "new",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(cli.returncode, 1)
+            self.assertIn("file_refs registry is invalid", cli.stdout)
+            self.assertNotIn("Traceback", cli.stderr)
+
     def test_writeback_creates_pending_mutation_and_reltest_delta_without_canonical(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

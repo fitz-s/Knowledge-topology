@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from knowledge_topology.paths import TopologyPaths
+from knowledge_topology.storage.registry import RegistryError
 from knowledge_topology.storage.registry import read_jsonl
 
 
@@ -18,7 +19,11 @@ class DoctorResult:
 def stale_anchors(root: str | Path, *, subject_repo_id: str, subject_head_sha: str) -> DoctorResult:
     paths = TopologyPaths.from_root(root)
     messages: list[str] = []
-    for row in read_jsonl(paths.resolve("canonical/registry/file_refs.jsonl")):
+    try:
+        rows = read_jsonl(paths.resolve("canonical/registry/file_refs.jsonl"))
+    except RegistryError as exc:
+        return DoctorResult(ok=False, messages=[f"file_refs registry is invalid: {exc}"])
+    for row in rows:
         if row.get("repo_id") != subject_repo_id:
             continue
         if row.get("commit_sha") != subject_head_sha:
