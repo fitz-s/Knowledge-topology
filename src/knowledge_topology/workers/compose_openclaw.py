@@ -562,14 +562,19 @@ def write_openclaw_projection(
 
     openclaw_dir = safe_openclaw_dir(paths)
     pages_dir = openclaw_dir / "wiki-mirror/pages"
+    runtime_json = safe_output(openclaw_dir, "runtime-pack.json")
+    runtime_md = safe_output(openclaw_dir, "runtime-pack.md")
+    memory_prompt = safe_output(openclaw_dir, "memory-prompt.md")
+    manifest_json = safe_output(openclaw_dir, "wiki-mirror/manifest.json")
+    page_outputs = [(record, safe_output(openclaw_dir, f"wiki-mirror/pages/{record['id']}.md")) for record in records]
+
     for stale in pages_dir.iterdir():
         if stale.is_symlink() or stale.is_file():
             stale.unlink()
         elif stale.is_dir():
             shutil.rmtree(stale)
     page_entries = []
-    for record in records:
-        relative = f"wiki-mirror/pages/{record['id']}.md"
+    for record, page_output in page_outputs:
         page_entries.append({
             "id": record["id"],
             "kind": record["kind"],
@@ -578,7 +583,7 @@ def write_openclaw_projection(
             "sensitivity": record.get("sensitivity"),
             "audiences": record.get("audiences", []),
         })
-        atomic_write_text(safe_output(openclaw_dir, relative), wiki_page(record, meta) + "\n")
+        atomic_write_text(page_output, wiki_page(record, meta) + "\n")
     manifest = {
         "schema_version": "1.0",
         "owner": "knowledge-topology",
@@ -591,10 +596,10 @@ def write_openclaw_projection(
         "generated_at": generated_at,
         "pages": sorted(page_entries, key=lambda item: item["id"]),
     }
-    atomic_write_text(safe_output(openclaw_dir, "runtime-pack.json"), json.dumps(pack, indent=2, sort_keys=True) + "\n")
-    atomic_write_text(safe_output(openclaw_dir, "runtime-pack.md"), render_runtime_markdown(pack) + "\n")
-    atomic_write_text(safe_output(openclaw_dir, "memory-prompt.md"), render_memory_prompt(pack) + "\n")
-    atomic_write_text(safe_output(openclaw_dir, "wiki-mirror/manifest.json"), json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    atomic_write_text(runtime_json, json.dumps(pack, indent=2, sort_keys=True) + "\n")
+    atomic_write_text(runtime_md, render_runtime_markdown(pack) + "\n")
+    atomic_write_text(memory_prompt, render_memory_prompt(pack) + "\n")
+    atomic_write_text(manifest_json, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     # Keep directory materialized even when there are no visible records.
     pages_dir.mkdir(parents=True, exist_ok=True)
     return openclaw_dir

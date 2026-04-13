@@ -217,6 +217,28 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                     clock=lambda: FIXED_TIME,
                 )
 
+    def test_openclaw_preflights_file_symlinks_before_writing_pages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "topology"
+            outside = Path(tmp) / "outside"
+            init_topology(root)
+            outside.mkdir()
+            node = visible_node()
+            write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
+            target = root / "projections/openclaw/runtime-pack.json"
+            target.symlink_to(outside / "runtime-pack.json")
+            with self.assertRaisesRegex(ValueError, "escaped projection root"):
+                write_openclaw_projection(
+                    root,
+                    project_id="openclaw_project",
+                    canonical_rev="rev_current",
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                    allow_dirty=True,
+                    clock=lambda: FIXED_TIME,
+                )
+            self.assertFalse((root / "projections/openclaw/wiki-mirror/pages" / f"{node['id']}.md").exists())
+
     def test_openclaw_subject_path_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "topology"
