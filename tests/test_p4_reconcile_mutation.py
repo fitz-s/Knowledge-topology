@@ -13,6 +13,7 @@ sys.path.insert(0, str(SRC))
 
 from knowledge_topology.ids import new_id
 from knowledge_topology.schema.mutation_pack import MutationPack, MutationPackError
+from knowledge_topology.storage.registry import Registry, RegistryError
 from knowledge_topology.workers.digest import write_digest_artifacts
 from knowledge_topology.workers.fetch import ingest_source
 from knowledge_topology.workers.init import init_topology
@@ -52,7 +53,7 @@ def digest_payload(source_id: str, *, target_id: str, edge_type: str = "SUPPORTS
 
 
 class P4ReconcileMutationTests(unittest.TestCase):
-    def make_digest(self, root: Path, *, target_id: str = "nd_missing", edge_type: str = "SUPPORTS", confidence: str = "low") -> Path:
+    def make_digest(self, root: Path, *, target_id: str | None = None, edge_type: str = "SUPPORTS", confidence: str = "low") -> Path:
         init_topology(root)
         draft = root / "draft.md"
         draft.write_text("source text\n", encoding="utf-8")
@@ -70,7 +71,7 @@ class P4ReconcileMutationTests(unittest.TestCase):
         output_dir = root / ".tmp"
         output_dir.mkdir(exist_ok=True)
         model_output = output_dir / "digest.json"
-        model_output.write_text(json.dumps(digest_payload(source_id, target_id=target_id, edge_type=edge_type, confidence=confidence)), encoding="utf-8")
+        model_output.write_text(json.dumps(digest_payload(source_id, target_id=target_id or new_id("nd"), edge_type=edge_type, confidence=confidence)), encoding="utf-8")
         digest_json, _ = write_digest_artifacts(root, source_id=source_id, model_adapter=JsonFileDigestAdapter(model_output))
         return digest_json
 
@@ -81,7 +82,7 @@ class P4ReconcileMutationTests(unittest.TestCase):
     def test_unknown_low_confidence_target_opens_gap_not_edge(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            digest_json = self.make_digest(root, target_id="nd_01HZXAMPLE0000000000000004", confidence="low")
+            digest_json = self.make_digest(root, target_id=new_id("nd"), confidence="low")
             mutation_path = reconcile_digest(
                 root,
                 digest_json=digest_json,
@@ -99,7 +100,7 @@ class P4ReconcileMutationTests(unittest.TestCase):
     def test_known_target_with_medium_confidence_adds_edge(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            target = "nd_01HZXAMPLE0000000000000004"
+            target = new_id("nd")
             digest_json = self.make_digest(root, target_id=target, confidence="medium")
             self.add_known_node(root, target)
             mutation_path = reconcile_digest(
@@ -118,7 +119,7 @@ class P4ReconcileMutationTests(unittest.TestCase):
     def test_contradiction_requires_human_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            target = "nd_01HZXAMPLE0000000000000004"
+            target = new_id("nd")
             digest_json = self.make_digest(root, target_id=target, edge_type="CONTRADICTS", confidence="high")
             self.add_known_node(root, target)
             mutation_path = reconcile_digest(
@@ -176,6 +177,57 @@ class P4ReconcileMutationTests(unittest.TestCase):
                 requires_human=True,
                 human_gate_class=None,
                 merge_confidence="low",
+            ).validate()
+
+    def test_registry_rejects_malformed_jsonl_and_non_opaque_node_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            registry = root / "canonical/registry/nodes.jsonl"
+            registry.write_text("{not-json}\n", encoding="utf-8")
+            with self.assertRaises(RegistryError):
+                Registry(root).known_node_ids()
+            registry.write_text(json.dumps({"id": "not-an-opaque-node-id"}) + "\n", encoding="utf-8")
+            with self.assertRaises(RegistryError):
+                Registry(root).known_node_ids()
+
+    def test_reconcile_rejects_malformed_candidate_target_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            digest_json = self.make_digest(root, target_id="not-an-opaque-node-id", confidence="high")
+            with self.assertRaises(ReconcileError):
+                reconcile_digest(
+                    root,
+                    digest_json=digest_json,
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                    base_canonical_rev="rev_current",
+                )
+
+    def test_mutation_pack_schema_validates_op_specific_ids(self):
+        with self.assertRaises(MutationPackError):
+            MutationPack(
+                schema_version="1.0",
+                id=new_id("mut"),
+                proposal_type="digest_reconcile",
+                proposed_by="reconciler",
+                base_canonical_rev="rev",
+                subject_repo_id="repo",
+                subject_head_sha="sha",
+                changes=[{
+                    "op": "add_edge",
+                    "edge_id": new_id("edg"),
+                    "from_id": "src_01HZXAMPLE0000000000000001",
+                    "to_id": "not-an-opaque-node-id",
+                    "edge_type": "SUPPORTS",
+                    "confidence": "high",
+                    "note": "bad",
+                    "basis_digest_id": "dg_01HZXAMPLE0000000000000002",
+                }],
+                evidence_refs=["dg_01HZXAMPLE0000000000000002"],
+                requires_human=False,
+                human_gate_class=None,
+                merge_confidence="medium",
             ).validate()
 
     def test_cli_reconcile_smoke(self):

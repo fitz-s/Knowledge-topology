@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
 from knowledge_topology.paths import TopologyPaths
+from knowledge_topology.ids import is_valid_id
 
 
 class RegistryError(ValueError):
@@ -21,7 +23,10 @@ def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
     for line_number, line in enumerate(file_path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
             continue
-        payload = json.loads(line)
+        try:
+            payload = json.loads(line)
+        except JSONDecodeError as exc:
+            raise RegistryError(f"{file_path}:{line_number} invalid JSONL: {exc.msg}") from exc
         if not isinstance(payload, dict):
             raise RegistryError(f"{file_path}:{line_number} must be a JSON object")
         rows.append(payload)
@@ -38,4 +43,10 @@ class Registry:
         return read_jsonl(self.paths.resolve("canonical/registry/nodes.jsonl"))
 
     def known_node_ids(self) -> set[str]:
-        return {row["id"] for row in self.nodes() if isinstance(row.get("id"), str)}
+        ids = set()
+        for row in self.nodes():
+            node_id = row.get("id")
+            if not isinstance(node_id, str) or not is_valid_id(node_id, prefix="nd"):
+                raise RegistryError(f"registry node id must be an nd_ opaque ID: {node_id}")
+            ids.add(node_id)
+        return ids

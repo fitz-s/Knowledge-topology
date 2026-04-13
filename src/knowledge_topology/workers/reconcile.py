@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from knowledge_topology.ids import new_id
+from knowledge_topology.ids import is_valid_id
 from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.schema.digest import Digest
 from knowledge_topology.schema.loader import load_json
@@ -83,6 +84,8 @@ def reconcile_digest(
     for edge in digest.candidate_edges:
         target_id = edge["target_id"]
         confidence = edge["confidence"]
+        if target_id != "NEW" and not is_valid_id(target_id, prefix="nd"):
+            raise ReconcileError(f"candidate edge target_id must be NEW or an nd_ opaque topology ID: {target_id}")
         if target_id == "NEW":
             changes.append({
                 "op": "propose_node",

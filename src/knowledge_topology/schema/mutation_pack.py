@@ -30,6 +30,17 @@ def _blank(value: str | None) -> bool:
     return value is None or not value.strip()
 
 
+def _require(change: dict[str, Any], fields: set[str]) -> None:
+    missing = fields - set(change)
+    if missing:
+        raise MutationPackError(f"{change.get('op')} missing fields: {', '.join(sorted(missing))}")
+
+
+def _require_id(value: Any, prefix: str, field: str) -> None:
+    if not isinstance(value, str) or not is_valid_id(value, prefix=prefix):
+        raise MutationPackError(f"{field} must use {prefix}_ opaque ID")
+
+
 @dataclass(frozen=True)
 class MutationPack:
     schema_version: str
@@ -71,6 +82,33 @@ class MutationPack:
             op = change.get("op")
             if op not in CHANGE_OPS:
                 raise MutationPackError(f"unknown mutation change op: {op}")
+            if op == "create_claim":
+                _require(change, {"claim_id", "statement", "source_ids", "digest_id", "status"})
+                _require_id(change["claim_id"], "clm", "claim_id")
+                _require_id(change["digest_id"], "dg", "digest_id")
+                for source_id in change["source_ids"]:
+                    _require_id(source_id, "src", "source_id")
+            elif op == "add_edge":
+                _require(change, {"edge_id", "from_id", "to_id", "edge_type", "confidence", "note", "basis_digest_id"})
+                _require_id(change["edge_id"], "edg", "edge_id")
+                _require_id(change["from_id"], "src", "from_id")
+                _require_id(change["to_id"], "nd", "to_id")
+                _require_id(change["basis_digest_id"], "dg", "basis_digest_id")
+            elif op == "open_gap":
+                _require(change, {"gap_id", "target_id", "reason", "candidate_edge", "digest_id"})
+                _require_id(change["gap_id"], "gap", "gap_id")
+                _require_id(change["digest_id"], "dg", "digest_id")
+                target_id = change["target_id"]
+                if target_id != "NEW":
+                    _require_id(target_id, "nd", "target_id")
+            elif op == "propose_node":
+                _require(change, {"node_id", "reason", "source_id", "digest_id"})
+                _require_id(change["node_id"], "nd", "node_id")
+                _require_id(change["source_id"], "src", "source_id")
+                _require_id(change["digest_id"], "dg", "digest_id")
+        for evidence_ref in self.evidence_refs:
+            if not isinstance(evidence_ref, str) or "_" not in evidence_ref:
+                raise MutationPackError("evidence_refs must contain opaque IDs")
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()
