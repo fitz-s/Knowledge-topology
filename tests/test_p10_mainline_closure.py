@@ -80,9 +80,11 @@ class P10MainlineClosureTests(unittest.TestCase):
         self.assertIn("structured-only local runtime projection", plan)
 
     def test_cli_reality_matches_status(self):
+        plan = read("docs/IMPLEMENTATION_PLAN.md")
         top_help = cli("--help")
         for command in ["init", "ingest", "digest", "reconcile", "apply", "compose", "lint", "doctor", "writeback", "agent-guard"]:
             self.assertIn(command, top_help)
+            self.assertIn(f"topology {command}", plan)
         self.assertNotIn("subject", top_help)
 
         compose_help = cli("compose", "--help")
@@ -98,6 +100,8 @@ class P10MainlineClosureTests(unittest.TestCase):
         plan = read("docs/package-plans/P10_MAINLINE_CLOSURE.md")
         self.assertIn("docs/package-reviews/P10_UNFREEZE.md", plan)
         self.assertIn("Gemini remains not required only if P10 does not change", plan)
+        self.assertTrue((ROOT / "docs/package-reviews/P10_UNFREEZE.md").exists())
+        self.assertIn("Required: no.", read("docs/package-reviews/P10_UNFREEZE.md"))
 
 
 if __name__ == "__main__":

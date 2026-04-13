@@ -391,6 +391,7 @@ P0-P9 shipped CLI commands:
 - `topology writeback`
 - `topology lint`
 - `topology doctor`
+- `topology agent-guard`
 
 P0-P9 shipped doctor subcommands:
 
