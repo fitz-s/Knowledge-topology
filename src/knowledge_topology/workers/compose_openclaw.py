@@ -44,6 +44,14 @@ RECORD_FIELDS = [
 ]
 FILE_REF_FIELDS = ["repo_id", "commit_sha", "path", "path_at_capture", "line_range", "symbol", "anchor_kind", "excerpt_hash", "verified_at"]
 FORBIDDEN_PATH_PARTS = ("local_blobs", ".openclaw-wiki", ".tmp", "cache")
+FORBIDDEN_TEXT = (
+    "raw/local_blobs",
+    "local_blobs",
+    ".openclaw-wiki",
+    "openclaw wiki apply",
+    "openclaw owns canonical",
+    "owns canonical truth",
+)
 WRITEBACK_POLICY = {
     "read_surfaces": [
         "projections/openclaw/runtime-pack.json",
@@ -139,16 +147,51 @@ def string_list(value: Any) -> list[str] | None:
     return sorted(item.strip() for item in value)
 
 
+def opaque_id_list(value: Any, prefix: str) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    ids = sorted(item.strip() for item in value if isinstance(item, str) and is_valid_id(item.strip(), prefix=prefix))
+    return ids or None
+
+
+def safe_text(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    folded = value.casefold()
+    if any(token in folded for token in FORBIDDEN_TEXT):
+        return None
+    return value.strip()
+
+
+def safe_anchor_path(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    folded = value.casefold()
+    if any(part in folded for part in FORBIDDEN_PATH_PARTS):
+        return None
+    return value
+
+
 def safe_file_ref(item: Any) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
-    path = item.get("path")
-    if not isinstance(path, str) or not path.strip():
+    clean_path = safe_anchor_path(item.get("path"))
+    if clean_path is None:
         return None
-    folded = path.casefold()
-    if any(part in folded for part in FORBIDDEN_PATH_PARTS):
-        return None
-    return {field: item[field] for field in FILE_REF_FIELDS if field in item}
+    output: dict[str, Any] = {"path": clean_path}
+    for field in FILE_REF_FIELDS:
+        if field == "path" or field not in item:
+            continue
+        if field == "path_at_capture":
+            safe = safe_anchor_path(item[field])
+            if safe is not None:
+                output[field] = safe
+        else:
+            output[field] = item[field]
+    return output
 
 
 def visible_to_openclaw(record: dict[str, Any]) -> bool:
@@ -181,7 +224,15 @@ def runtime_record(record: dict[str, Any]) -> dict[str, Any]:
     for field in RECORD_FIELDS:
         if field in {"id", "kind"} or field not in record:
             continue
-        if field in {"source_ids", "claim_ids", "basis_claim_ids", "tags"}:
+        if field == "source_ids":
+            values = opaque_id_list(record[field], "src")
+            if values is not None:
+                output[field] = values
+        elif field in {"claim_ids", "basis_claim_ids"}:
+            values = opaque_id_list(record[field], "clm")
+            if values is not None:
+                output[field] = values
+        elif field == "tags":
             values = string_list(record[field])
             if values is not None:
                 output[field] = values
@@ -189,6 +240,16 @@ def runtime_record(record: dict[str, Any]) -> dict[str, Any]:
             refs = [safe for item in record[field] if (safe := safe_file_ref(item)) is not None] if isinstance(record[field], list) else []
             if refs:
                 output[field] = sorted(refs, key=lambda item: json.dumps(item, sort_keys=True))
+        elif field in {"summary", "statement"}:
+            text = safe_text(record[field])
+            if text is not None:
+                output[field] = text
+        elif field in {"type", "status", "authority", "scope", "sensitivity", "confidence", "updated_at"}:
+            text = safe_text(record[field])
+            if text is not None:
+                output[field] = text
+        elif field == "audiences":
+            output[field] = sorted(record[field])
         else:
             output[field] = record[field]
     return {field: output[field] for field in RECORD_FIELDS if field in output}

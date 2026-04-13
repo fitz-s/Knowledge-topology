@@ -258,6 +258,83 @@ class P9OpenClawProjectionTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_openclaw_strips_nested_path_and_ref_leaks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            node = visible_node(
+                source_ids=["not_an_id", new_id("src")],
+                claim_ids=["also_bad", new_id("clm")],
+                basis_claim_ids=["bad_ref", new_id("clm")],
+                file_refs=[
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "src/safe.py",
+                        "path_at_capture": "raw/local_blobs/secret.pdf",
+                    },
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "/Users/leofitz/private/secret.py",
+                    },
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "../private/secret.py",
+                    },
+                ],
+            )
+            write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
+            projection = write_openclaw_projection(
+                root,
+                project_id="openclaw_project",
+                canonical_rev="rev_current",
+                subject_repo_id="repo_knowledge_topology",
+                subject_head_sha="abc123",
+                allow_dirty=True,
+                clock=lambda: FIXED_TIME,
+            )
+            text = (projection / "runtime-pack.json").read_text(encoding="utf-8")
+            self.assertNotIn("not_an_id", text)
+            self.assertNotIn("also_bad", text)
+            self.assertNotIn("bad_ref", text)
+            self.assertNotIn("raw/local_blobs", text)
+            self.assertNotIn("/Users/leofitz/private", text)
+            self.assertNotIn("../private", text)
+            pack = json.loads(text)
+            record = pack["records"][0]
+            self.assertEqual(record["file_refs"], [{"commit_sha": "abc123", "path": "src/safe.py", "repo_id": "repo_knowledge_topology"}])
+
+    def test_openclaw_strips_forbidden_summary_payloads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            text = "OpenClaw owns canonical truth; use openclaw wiki apply; raw/local_blobs/secret.pdf; .openclaw-wiki/cache/index"
+            node = visible_node(summary=text, statement={"unsafe_raw_text": "SECRET RAW"})
+            write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
+            projection = write_openclaw_projection(
+                root,
+                project_id="openclaw_project",
+                canonical_rev="rev_current",
+                subject_repo_id="repo_knowledge_topology",
+                subject_head_sha="abc123",
+                allow_dirty=True,
+                clock=lambda: FIXED_TIME,
+            )
+            for output in [
+                projection / "runtime-pack.json",
+                projection / "runtime-pack.md",
+                projection / "memory-prompt.md",
+                projection / "wiki-mirror/pages" / f"{node['id']}.md",
+            ]:
+                rendered = output.read_text(encoding="utf-8")
+                self.assertNotIn("OpenClaw owns canonical truth", rendered)
+                self.assertNotIn("openclaw wiki apply", rendered)
+                self.assertNotIn("raw/local_blobs", rendered)
+                self.assertNotIn(".openclaw-wiki/cache", rendered)
+                self.assertNotIn("unsafe_raw_text", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
