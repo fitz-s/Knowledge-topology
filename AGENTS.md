@@ -114,8 +114,26 @@ hooks, skills, and OpenClaw adapters are facades over that path.
 
 Active work queues use spool directories, not shared JSONL queue files. Use
 one job file per unit of work and atomic move/rename through
-`pending -> leased -> done|failed`. `ops/events/events.jsonl` remains the
-append-only durable audit log.
+`pending -> leased -> done|failed`. Tracked audit uses semantic event records,
+not queue churn logs.
+
+## Package Unfreeze Gates
+
+Every big package must run its own package-level `$ralplan` and reality check
+before implementation. After implementation, the package cannot unfreeze the
+next package until both a Reviewer and a Critic approve it.
+
+The Reviewer checks contract compliance, evidence, tests, and acceptance
+criteria. The Critic performs adversarial review against failure modes,
+authority leaks, stale-state paths, deterministic assumptions, and missing
+tests.
+
+Use `$ask-gemini` for third-party external validation when package work touches
+architecture boundaries, security/trust boundaries, public/private leakage,
+OpenClaw external-root behavior, adapter/facade boundaries, or when Reviewer
+and Critic disagree. Store Gemini artifacts under `.omx/artifacts/`.
+
+Detailed gate rules live in `PACKAGE_GATES.md`.
 
 ## Build Order
 

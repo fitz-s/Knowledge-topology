@@ -453,6 +453,9 @@ These invariants must remain true as the system grows:
 - File refs carry `repo_id`, `commit_sha`, and `verified_at`.
 - Every builder-critical invariant has a relationship-test spec.
 - CLI/library code owns business rules; adapters never fork them.
+- Every big package requires package-level `$ralplan`, implementation evidence,
+  Reviewer approval, Critic approval, and any required Gemini validation before
+  the next package is unfrozen.
 
 ## 14. Execution Batches
 
@@ -670,6 +673,10 @@ against a real coding task.
 
 Do not ingest full third-party blobs into tracked files unless `content_mode`
 and `redistributable` make it safe.
+
+Do not unfreeze the next big package until `PACKAGE_GATES.md` is satisfied:
+package ralplan/reality check, verification evidence, Reviewer approval,
+Critic approval, and required Gemini artifact or explicit user waiver.
 
 ## 16. Risks
 

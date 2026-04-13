@@ -13,6 +13,7 @@ Escalate only for authority-changing decisions:
 - supersede or delete proposal
 - cross-scope authority upgrade
 - high-consequence weak-evidence merge
+- reviewer/critic dialectic stalemate
 
 ## Card Schema
 
@@ -52,3 +53,11 @@ ID, and a short explanation of the decision pressure.
 
 If a card expires without review, apply the safe default and keep the card in
 `ops/escalations/` for audit.
+
+## Dialectic Stalemate
+
+When Reviewer and Critic disagree on package completion, create an escalation
+card and run `$ask-gemini` when the disagreement touches architecture,
+security, public/private leakage, OpenClaw, adapter boundaries, or canonical
+authority. The package remains frozen until the conflict is resolved or waived
+by the user.

@@ -111,3 +111,9 @@ compile, lint, and doctor should be deterministic. Builder-pack load-bearing
 files are compiled from canonical records, not freely generated.
 
 See `COMPILE.md` for traversal, sensitivity filtering, and projection bounds.
+
+## Package Unfreeze
+
+Package completion and next-package unfreeze follow `PACKAGE_GATES.md`.
+Reviewer and Critic approval are mandatory. Required Gemini external validation
+blocks unfreeze when missing, unless the user explicitly waives it.

@@ -156,6 +156,22 @@ class P0ContractTests(unittest.TestCase):
         for profile in ["`reader`", "`reconciler`", "`writer`", "`reviewer`"]:
             self.assertIn(profile, policy)
 
+    def test_package_unfreeze_requires_reviewer_critic_and_gemini_triggers(self):
+        gates = self.read_doc("PACKAGE_GATES.md")
+        for needle in [
+            "Reviewer",
+            "Critic",
+            "$ask-gemini",
+            "architecture boundary changes",
+            "reviewer and critic disagree",
+            "unfreeze is blocked"
+        ]:
+            self.assertIn(needle, gates)
+        fixture = self.read_json("tests/fixtures/p0/package_gates/unfreeze_decision.json")
+        self.assertEqual(fixture["reviewer_verdict"], "approved")
+        self.assertEqual(fixture["critic_verdict"], "approved")
+        self.assertIn(fixture["final_decision"], ["approved", "blocked", "waived_by_user"])
+
 
 if __name__ == "__main__":
     unittest.main()

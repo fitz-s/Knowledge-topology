@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "package_id": "P1",
+  "package_plan_path": ".omx/plans/prd-knowledge-topology-p1-engine-skeleton.md",
+  "implementation_commits": [
+    "45427a2"
+  ],
+  "verification": {
+    "commands": [
+      "python3 -m unittest discover -s tests",
+      "python3 -m compileall -q src tests",
+      "git diff --check"
+    ],
+    "passed": true
+  },
+  "reviewer_verdict": "approved",
+  "critic_verdict": "approved",
+  "gemini": {
+    "required": false,
+    "artifact_path": null,
+    "reason": "No architecture/security/public-leakage/adapter boundary change in this example fixture."
+  },
+  "unresolved_risks": [],
+  "final_decision": "approved"
+}

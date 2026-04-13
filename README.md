@@ -24,3 +24,4 @@ and future worker jobs.
 - `ESCALATIONS.md`: structured human-gate card contract.
 - `SCHEMA_EVOLUTION.md`: versioning and migration policy.
 - `COMPILE.md`: deterministic projection and traversal policy.
+- `PACKAGE_GATES.md`: package review, critic, Gemini, and unfreeze gate policy.
