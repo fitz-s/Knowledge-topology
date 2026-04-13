@@ -203,6 +203,27 @@ class P7WritebackLintDoctorTests(unittest.TestCase):
             self.assertIn("count does not match", joined)
             self.assertIn("invalid IDs", joined)
 
+    def test_lint_reports_malformed_constraints_without_crashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            invalid_count = root / "projections/tasks/task_bad_count"
+            invalid_count.mkdir(parents=True)
+            (invalid_count / "constraints.json").write_text(
+                json.dumps({"count": "abc", "invariants": [{"id": new_id("nd")}]}) + "\n",
+                encoding="utf-8",
+            )
+            (invalid_count / "relationship-tests.yaml").write_text("[]\n", encoding="utf-8")
+            invalid_json = root / "projections/tasks/task_bad_json"
+            invalid_json.mkdir(parents=True)
+            (invalid_json / "constraints.json").write_text("{bad json", encoding="utf-8")
+            (invalid_json / "relationship-tests.yaml").write_text("[]\n", encoding="utf-8")
+            result = run_lints(root)
+            self.assertFalse(result.ok)
+            joined = "\n".join(result.messages)
+            self.assertIn("count must be a non-negative integer", joined)
+            self.assertIn("invalid constraints.json", joined)
+
     def test_doctor_reports_stale_file_refs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

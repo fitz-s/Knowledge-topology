@@ -173,12 +173,23 @@ def lint_missing_antibodies(paths: TopologyPaths) -> list[str]:
         if not reltests.exists():
             messages.append(f"{task_dir}: builder-critical invariants missing relationship tests")
             continue
-        payload = json.loads(constraints.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(constraints.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            messages.append(f"{task_dir}: invalid constraints.json: {exc}")
+            continue
+        if not isinstance(payload, dict):
+            messages.append(f"{task_dir}: constraints.json must be an object")
+            continue
         invariants = payload.get("invariants", [])
         if not isinstance(invariants, list):
             messages.append(f"{task_dir}: constraints invariants must be a list")
             continue
-        invariant_count = int(payload.get("count", len(invariants)))
+        count_value = payload.get("count", len(invariants))
+        if isinstance(count_value, bool) or not isinstance(count_value, int) or count_value < 0:
+            messages.append(f"{task_dir}: constraints count must be a non-negative integer")
+            continue
+        invariant_count = count_value
         if invariant_count != len(invariants):
             messages.append(f"{task_dir}: constraints invariant count does not match invariant list")
             continue
