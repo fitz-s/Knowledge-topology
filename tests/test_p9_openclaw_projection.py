@@ -199,6 +199,30 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             pack = json.loads((projection / "runtime-pack.json").read_text(encoding="utf-8"))
             self.assertEqual(pack["records"], [])
 
+    def test_openclaw_removes_special_stale_wiki_page_entries(self):
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("mkfifo unavailable")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            node = visible_node()
+            write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
+            pages = root / "projections/openclaw/wiki-mirror/pages"
+            pages.mkdir(parents=True)
+            fifo = pages / "stale.md"
+            os.mkfifo(fifo)
+            write_openclaw_projection(
+                root,
+                project_id="openclaw_project",
+                canonical_rev="rev_current",
+                subject_repo_id="repo_knowledge_topology",
+                subject_head_sha="abc123",
+                allow_dirty=True,
+                clock=lambda: FIXED_TIME,
+            )
+            self.assertFalse(fifo.exists())
+            self.assertTrue((pages / f"{node['id']}.md").exists())
+
     def test_openclaw_rejects_output_symlink_escape(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "topology"

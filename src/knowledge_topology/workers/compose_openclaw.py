@@ -583,6 +583,8 @@ def write_openclaw_projection(
             stale.unlink()
         elif stale.is_dir():
             shutil.rmtree(stale)
+        else:
+            stale.unlink()
     page_entries = []
     for record, page_output in page_outputs:
         page_entries.append({
