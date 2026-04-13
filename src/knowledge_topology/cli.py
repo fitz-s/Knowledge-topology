@@ -67,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     builder_parser.add_argument("--canonical-rev", required=True, help="canonical revision")
     builder_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
     builder_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+    builder_parser.add_argument("--subject-path", help="optional local subject repo path for dirty checks")
     builder_parser.add_argument("--allow-dirty", action="store_true", help="allow dirty topology repo for fixture/test use")
 
     return parser
@@ -150,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
                 canonical_rev=args.canonical_rev,
                 subject_repo_id=args.subject_repo_id,
                 subject_head_sha=args.subject_head_sha,
+                subject_path=args.subject_path,
                 allow_dirty=args.allow_dirty,
             )
         except (ComposeError, ValueError) as exc:

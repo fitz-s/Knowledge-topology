@@ -14,6 +14,11 @@ sys.path.insert(0, str(SRC))
 from knowledge_topology.ids import new_id
 from knowledge_topology.workers.compose_builder import write_builder_pack
 from knowledge_topology.workers.init import init_topology
+from knowledge_topology.workers.fetch import ingest_source
+from knowledge_topology.workers.digest import write_digest_artifacts
+from knowledge_topology.workers.reconcile import reconcile_digest
+from knowledge_topology.workers.apply import apply_mutation
+from knowledge_topology.adapters.digest_model import JsonFileDigestAdapter
 
 
 class P6BuilderComposeTests(unittest.TestCase):
@@ -108,9 +113,12 @@ class P6BuilderComposeTests(unittest.TestCase):
             self.seed_applied_state(root)
             first = write_builder_pack(root, task_id="task_a", goal="goal", canonical_rev="rev", subject_repo_id="repo", subject_head_sha="sha", allow_dirty=True)
             first_bundle = self.read_pack_json(first, "source-bundle.json")
+            first_reltests = (first / "relationship-tests.yaml").read_text(encoding="utf-8")
             second = write_builder_pack(root, task_id="task_b", goal="goal", canonical_rev="rev", subject_repo_id="repo", subject_head_sha="sha", allow_dirty=True)
             second_bundle = self.read_pack_json(second, "source-bundle.json")
+            second_reltests = (second / "relationship-tests.yaml").read_text(encoding="utf-8")
             self.assertEqual(first_bundle, second_bundle)
+            self.assertEqual(first_reltests, second_reltests)
 
     def test_compose_requires_metadata_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -133,6 +141,45 @@ class P6BuilderComposeTests(unittest.TestCase):
             serialized = json.dumps(self.read_pack_json(pack, "source-bundle.json"))
             self.assertNotIn("do not leak", serialized)
             self.assertNotIn("missing audience", serialized)
+
+    def test_real_applied_records_are_visible_to_builder_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            draft = root / "draft.md"
+            draft.write_text("source text\n", encoding="utf-8")
+            source_id = ingest_source(root, str(draft), note="curated", depth="deep", audience="builders", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123", base_canonical_rev="rev_current", redistributable="yes").packet_id
+            model = root / ".tmp/digest.json"
+            model.parent.mkdir(exist_ok=True)
+            model.write_text(json.dumps({
+                "schema_version": "1.0",
+                "id": new_id("dg"),
+                "source_id": source_id,
+                "digest_depth": "deep",
+                "passes_completed": [1, 2, 3, 4],
+                "author_claims": [{"text": "applied claim visible"}],
+                "direct_evidence": [],
+                "model_inferences": [],
+                "boundary_conditions": [],
+                "alternative_interpretations": [],
+                "contested_points": [],
+                "unresolved_ambiguity": [],
+                "open_questions": [],
+                "candidate_edges": [{"target_id": "NEW", "edge_type": "SUPPORTS", "confidence": "low", "note": "new"}],
+                "fidelity_flags": {
+                    "reasoning_chain_preserved": "yes",
+                    "boundary_conditions_preserved": "yes",
+                    "alternative_interpretations_preserved": "yes",
+                    "hidden_assumptions_extracted": "partial",
+                    "evidence_strength_graded": "yes",
+                },
+            }), encoding="utf-8")
+            digest_json, _ = write_digest_artifacts(root, source_id=source_id, model_adapter=JsonFileDigestAdapter(model))
+            mutation = reconcile_digest(root, digest_json=digest_json, subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123", base_canonical_rev="rev_current")
+            apply_mutation(root, mutation, current_canonical_rev="rev_current", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123")
+            pack = write_builder_pack(root, task_id="task_real", goal="goal", canonical_rev="rev", subject_repo_id="repo", subject_head_sha="sha", allow_dirty=True)
+            serialized = json.dumps(self.read_pack_json(pack, "source-bundle.json"))
+            self.assertIn("applied claim visible", serialized)
 
     def test_cli_compose_builder_smoke(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -171,6 +218,20 @@ class P6BuilderComposeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("created builder pack:", result.stdout)
             self.assertTrue((root / "projections/tasks/task_cli/metadata.json").exists())
+
+    def test_subject_dirty_repo_blocks_without_bypass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "topology"
+            subject = Path(tmp) / "subject"
+            init_topology(root)
+            subject.mkdir()
+            subprocess.run(["git", "init", "-b", "main"], cwd=subject, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            (subject / "tracked.txt").write_text("clean\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=subject, check=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=subject, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            (subject / "tracked.txt").write_text("dirty\n", encoding="utf-8")
+            with self.assertRaises(Exception):
+                write_builder_pack(root, task_id="task_dirty", goal="goal", canonical_rev="rev", subject_repo_id="repo", subject_head_sha="sha", subject_path=subject, allow_dirty=False)
 
 
 if __name__ == "__main__":

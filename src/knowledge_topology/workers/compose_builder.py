@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from knowledge_topology.git_state import read_git_state
-from knowledge_topology.ids import new_id
+from knowledge_topology.ids import CROCKFORD32
 from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.storage.registry import read_jsonl
 from knowledge_topology.storage.transaction import atomic_write_text
@@ -62,6 +63,24 @@ def require_clean_git(root: Path, *, allow_dirty: bool) -> None:
         raise ComposeError("topology repo must be clean before composing builder pack")
 
 
+def require_subject_clean(subject_path: str | Path | None, *, allow_dirty: bool) -> None:
+    if allow_dirty or subject_path is None:
+        return
+    state = read_git_state(Path(subject_path))
+    if state.head_sha is not None and state.dirty:
+        raise ComposeError("subject repo must be clean before composing builder pack")
+
+
+def deterministic_reltest_id(node_id: str) -> str:
+    digest = hashlib.sha256(node_id.encode("utf-8")).digest()
+    value = int.from_bytes(digest[:17], "big") >> 6
+    chars = []
+    for _ in range(26):
+        chars.append(CROCKFORD32[value & 31])
+        value >>= 5
+    return "reltest_" + "".join(reversed(chars))
+
+
 def load_applied_state(paths: TopologyPaths) -> dict[str, list[dict[str, Any]]]:
     return {
         "claims": read_jsonl(paths.resolve("canonical/registry/claims.jsonl")),
@@ -105,7 +124,7 @@ def relationship_tests_for(nodes: list[dict[str, Any]]) -> str:
         if node.get("type") == "invariant" and node_id:
             tests.append({
                 "schema_version": "1.0",
-                "id": new_id("reltest"),
+                "id": deterministic_reltest_id(node_id),
                 "invariant_node_id": node_id,
                 "property": "Invariant remains satisfied by implementation.",
                 "evidence_refs": node.get("source_ids", []),
@@ -136,6 +155,7 @@ def write_builder_pack(
     canonical_rev: str,
     subject_repo_id: str,
     subject_head_sha: str,
+    subject_path: str | Path | None = None,
     allow_dirty: bool = False,
 ) -> Path:
     for field, value in {
@@ -151,6 +171,7 @@ def write_builder_pack(
     safe_task_id = sanitize_task_id(task_id)
     paths = TopologyPaths.from_root(root)
     require_clean_git(paths.root, allow_dirty=allow_dirty)
+    require_subject_clean(subject_path, allow_dirty=allow_dirty)
     state = load_applied_state(paths)
     claims = bounded([item for item in state["claims"] if visible_to_builders(item)], 40)
     edges = bounded([item for item in state["edges"] if visible_to_builders(item)], 40)
