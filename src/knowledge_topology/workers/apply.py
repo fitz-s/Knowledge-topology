@@ -152,6 +152,19 @@ def pending_mutation_path(paths: TopologyPaths, mutation_path: str | Path) -> Pa
     return mutation
 
 
+def check_mutation_identity(paths: TopologyPaths, mutation: Path, pack: MutationPack) -> None:
+    expected_name = f"{pack.id}.json"
+    if mutation.name != expected_name:
+        raise ApplyError("pending mutation filename must match internal mutation pack id")
+    for applied in paths.resolve("mutations/applied").glob("mut_*.json"):
+        try:
+            applied_id = load_json(applied).get("id")
+        except Exception as exc:
+            raise ApplyError(f"cannot inspect applied mutation pack: {applied.name}") from exc
+        if applied_id == pack.id:
+            raise ApplyError(f"mutation pack id already applied: {pack.id}")
+
+
 def existing_registry_ids(path: Path) -> set[str]:
     ids = set()
     for row in read_jsonl(path):
@@ -225,6 +238,7 @@ def apply_mutation(
     paths = TopologyPaths.from_root(root)
     mutation = pending_mutation_path(paths, mutation_path)
     pack = MutationPack.from_dict(load_json(mutation))
+    check_mutation_identity(paths, mutation, pack)
     if pack.base_canonical_rev != current_canonical_rev:
         raise ApplyError("base_canonical_rev is stale")
     if pack.subject_repo_id != subject_repo_id:

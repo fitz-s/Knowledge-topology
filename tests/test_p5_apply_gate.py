@@ -295,6 +295,33 @@ class P5ApplyGateTests(unittest.TestCase):
                 apply_mutation(root, mutation, current_canonical_rev="rev_current", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123")
             self.assertFalse(list((root / "ops/events").rglob("evt_*.json")))
 
+    def test_mutation_filename_must_match_internal_id_and_applied_ids_do_not_replay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mutation = self.make_pending_mutation(root)
+            payload = json.loads(mutation.read_text(encoding="utf-8"))
+            wrong_name = mutation.parent / f"{new_id('mut')}.json"
+            wrong_name.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(ApplyError):
+                apply_mutation(root, wrong_name, current_canonical_rev="rev_current", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123")
+
+            apply_mutation(root, mutation, current_canonical_rev="rev_current", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123")
+            replay_payload = dict(payload)
+            # Fresh record ids prove replay is rejected by mutation pack id, not only by record/page collisions.
+            for change in replay_payload["changes"]:
+                if "claim_id" in change:
+                    change["claim_id"] = new_id("clm")
+                if "edge_id" in change:
+                    change["edge_id"] = new_id("edg")
+                if "gap_id" in change:
+                    change["gap_id"] = new_id("gap")
+                if "node_id" in change:
+                    change["node_id"] = new_id("nd")
+            replay = root / "mutations/pending" / f"{payload['id']}.json"
+            replay.write_text(json.dumps(replay_payload), encoding="utf-8")
+            with self.assertRaises(ApplyError):
+                apply_mutation(root, replay, current_canonical_rev="rev_current", subject_repo_id="repo_knowledge_topology", subject_head_sha="abc123")
+
     def test_failed_write_rolls_back_prior_canonical_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
