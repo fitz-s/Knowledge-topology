@@ -11,6 +11,9 @@ from knowledge_topology.schema.digest import DigestError
 from knowledge_topology.schema.mutation_pack import MutationPackError
 from knowledge_topology.workers.apply import ApplyError, apply_mutation
 from knowledge_topology.workers.compose_builder import ComposeError, write_builder_pack
+from knowledge_topology.workers.doctor import stale_anchors
+from knowledge_topology.workers.lint import run_lints
+from knowledge_topology.workers.writeback import WritebackError, writeback_session
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
 from knowledge_topology.workers.fetch import FetchError, ingest_source
 from knowledge_topology.workers.init import init_topology
@@ -69,6 +72,23 @@ def build_parser() -> argparse.ArgumentParser:
     builder_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
     builder_parser.add_argument("--subject-path", help="optional local subject repo path for dirty checks")
     builder_parser.add_argument("--allow-dirty", action="store_true", help="allow dirty topology repo for fixture/test use")
+
+    lint_parser = subparsers.add_parser("lint", help="run deterministic topology lints")
+    lint_parser.add_argument("--root", default=".", help="topology root")
+
+    doctor_parser = subparsers.add_parser("doctor", help="run topology doctor checks")
+    doctor_subparsers = doctor_parser.add_subparsers(dest="doctor_command")
+    stale_parser = doctor_subparsers.add_parser("stale-anchors", help="report stale file refs")
+    stale_parser.add_argument("--root", default=".", help="topology root")
+    stale_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    stale_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+
+    writeback_parser = subparsers.add_parser("writeback", help="create mutation proposal from session summary")
+    writeback_parser.add_argument("--root", default=".", help="topology root")
+    writeback_parser.add_argument("--summary-json", required=True, help="session summary JSON")
+    writeback_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    writeback_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+    writeback_parser.add_argument("--base-canonical-rev", required=True, help="base canonical revision")
 
     return parser
 
@@ -157,6 +177,34 @@ def main(argv: list[str] | None = None) -> int:
         except (ComposeError, ValueError) as exc:
             parser.exit(2, f"topology compose builder: {exc}\n")
         print(f"created builder pack: {pack_dir}")
+        return 0
+    if args.command == "lint":
+        result = run_lints(Path(args.root).expanduser().resolve())
+        for message in result.messages:
+            print(message)
+        return 0 if result.ok else 1
+    if args.command == "doctor" and args.doctor_command == "stale-anchors":
+        result = stale_anchors(
+            Path(args.root).expanduser().resolve(),
+            subject_repo_id=args.subject_repo_id,
+            subject_head_sha=args.subject_head_sha,
+        )
+        for message in result.messages:
+            print(message)
+        return 0 if result.ok else 1
+    if args.command == "writeback":
+        try:
+            mutation_path, reltest_path = writeback_session(
+                Path(args.root).expanduser().resolve(),
+                summary_path=args.summary_json,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+                base_canonical_rev=args.base_canonical_rev,
+            )
+        except (WritebackError, ValueError) as exc:
+            parser.exit(2, f"topology writeback: {exc}\n")
+        print(f"created writeback mutation pack: {mutation_path}")
+        print(f"created relationship-test delta: {reltest_path}")
         return 0
     parser.print_help()
     return 0
