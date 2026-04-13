@@ -51,6 +51,10 @@ FORBIDDEN_TEXT = (
     "openclaw wiki apply",
     "openclaw owns canonical",
     "owns canonical truth",
+    "unsafe_raw_text",
+    "/users/",
+    "../",
+    "private/",
 )
 WRITEBACK_POLICY = {
     "read_surfaces": [
@@ -83,6 +87,7 @@ WRITEBACK_POLICY = {
     "queue_semantics": "local_spool_single_filesystem",
     "wiki_policy": "read_only_mirror_no_openclaw_wiki_apply_authority",
 }
+PROJECTED_AUDIENCES = {"openclaw", "all"}
 
 
 def utc_now() -> str:
@@ -97,6 +102,10 @@ def require_nonblank(value: str, field: str) -> None:
 def require_topology_state(root: Path, *, canonical_rev: str, allow_dirty: bool) -> None:
     state = read_git_state(root)
     if state.head_sha is None:
+        if allow_dirty:
+            return
+        raise OpenClawComposeError("topology root must be a git repository before composing OpenClaw projection")
+    if allow_dirty:
         return
     if not allow_dirty and state.dirty:
         raise OpenClawComposeError("topology repo must be clean before composing OpenClaw projection")
@@ -147,6 +156,21 @@ def string_list(value: Any) -> list[str] | None:
     return sorted(item.strip() for item in value)
 
 
+def safe_tags(value: Any) -> list[str] | None:
+    values = string_list(value)
+    if values is None:
+        return None
+    safe = [item for item in values if safe_text(item) is not None]
+    return safe or None
+
+
+def projected_audiences(value: Any) -> list[str] | None:
+    if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
+        return None
+    safe = sorted({item.strip() for item in value if item.strip() in PROJECTED_AUDIENCES})
+    return safe or None
+
+
 def opaque_id_list(value: Any, prefix: str) -> list[str] | None:
     if not isinstance(value, list):
         return None
@@ -189,16 +213,19 @@ def safe_file_ref(item: Any) -> dict[str, Any] | None:
             safe = safe_anchor_path(item[field])
             if safe is not None:
                 output[field] = safe
+        elif field == "line_range":
+            value = item[field]
+            if isinstance(value, list) and len(value) == 2 and all(isinstance(part, int) and part > 0 for part in value):
+                output[field] = value
         else:
-            output[field] = item[field]
+            text = safe_text(item[field])
+            if text is not None:
+                output[field] = text
     return output
 
 
 def visible_to_openclaw(record: dict[str, Any]) -> bool:
-    audiences = record.get("audiences")
-    if not isinstance(audiences, list) or not all(isinstance(item, str) for item in audiences):
-        return False
-    if "openclaw" not in audiences and "all" not in audiences:
+    if projected_audiences(record.get("audiences")) is None:
         return False
     if record.get("sensitivity") not in VALID_SENSITIVITY:
         return False
@@ -233,7 +260,7 @@ def runtime_record(record: dict[str, Any]) -> dict[str, Any]:
             if values is not None:
                 output[field] = values
         elif field == "tags":
-            values = string_list(record[field])
+            values = safe_tags(record[field])
             if values is not None:
                 output[field] = values
         elif field == "file_refs":
@@ -249,7 +276,9 @@ def runtime_record(record: dict[str, Any]) -> dict[str, Any]:
             if text is not None:
                 output[field] = text
         elif field == "audiences":
-            output[field] = sorted(record[field])
+            audiences = projected_audiences(record[field])
+            if audiences is not None:
+                output[field] = audiences
         else:
             output[field] = record[field]
     return {field: output[field] for field in RECORD_FIELDS if field in output}
@@ -407,6 +436,8 @@ def write_openclaw_projection(
 
     openclaw_dir = safe_openclaw_dir(paths)
     pages_dir = openclaw_dir / "wiki-mirror/pages"
+    for stale_page in pages_dir.glob("*.md"):
+        stale_page.unlink()
     page_entries = []
     for record in records:
         relative = f"wiki-mirror/pages/{record['id']}.md"

@@ -23,6 +23,15 @@ def write_jsonl(path: Path, rows):
     path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
 
 
+def init_git_repo(path: Path) -> str:
+    subprocess.run(["git", "init"], cwd=path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=path, check=True)
+    subprocess.run(["git", "add", "."], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, stdout=subprocess.PIPE, text=True, check=True).stdout.strip()
+
+
 def visible_node(**overrides):
     node = {
         "id": new_id("nd"),
@@ -147,6 +156,38 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertLess(first.index(node_a["id"]), first.index(node_b["id"]))
 
+    def test_openclaw_removes_stale_wiki_pages_when_visibility_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            node = visible_node()
+            write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
+            projection = write_openclaw_projection(
+                root,
+                project_id="openclaw_project",
+                canonical_rev="rev_current",
+                subject_repo_id="repo_knowledge_topology",
+                subject_head_sha="abc123",
+                allow_dirty=True,
+                clock=lambda: FIXED_TIME,
+            )
+            page = projection / "wiki-mirror/pages" / f"{node['id']}.md"
+            self.assertTrue(page.exists())
+            node["sensitivity"] = "operator_only"
+            write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
+            write_openclaw_projection(
+                root,
+                project_id="openclaw_project",
+                canonical_rev="rev_current",
+                subject_repo_id="repo_knowledge_topology",
+                subject_head_sha="abc123",
+                allow_dirty=True,
+                clock=lambda: FIXED_TIME,
+            )
+            self.assertFalse(page.exists())
+            pack = json.loads((projection / "runtime-pack.json").read_text(encoding="utf-8"))
+            self.assertEqual(pack["records"], [])
+
     def test_openclaw_rejects_output_symlink_escape(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "topology"
@@ -171,31 +212,28 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             root = Path(tmp) / "topology"
             subject = Path(tmp) / "subject"
             init_topology(root)
+            root_head = init_git_repo(root)
             subject.mkdir()
-            subprocess.run(["git", "init"], cwd=subject, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=subject, check=True)
-            subprocess.run(["git", "config", "user.name", "Test"], cwd=subject, check=True)
             (subject / "README.md").write_text("subject\n", encoding="utf-8")
-            subprocess.run(["git", "add", "README.md"], cwd=subject, check=True)
-            subprocess.run(["git", "commit", "-m", "init"], cwd=subject, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-            head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=subject, stdout=subprocess.PIPE, text=True, check=True).stdout.strip()
+            head = init_git_repo(subject)
             projection = write_openclaw_projection(
                 root,
                 project_id="openclaw_project",
-                canonical_rev="rev_current",
+                canonical_rev=root_head,
                 subject_repo_id="repo_knowledge_topology",
                 subject_head_sha=head,
                 subject_path=subject,
-                allow_dirty=True,
+                allow_dirty=False,
                 clock=lambda: FIXED_TIME,
             )
             pack = json.loads((projection / "runtime-pack.json").read_text(encoding="utf-8"))
             self.assertTrue(pack["subject_state_verified"])
+            subprocess.run(["git", "clean", "-fd"], cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
             with self.assertRaisesRegex(ValueError, "subject_head_sha does not match"):
                 write_openclaw_projection(
                     root,
                     project_id="openclaw_project",
-                    canonical_rev="rev_current",
+                    canonical_rev=root_head,
                     subject_repo_id="repo_knowledge_topology",
                     subject_head_sha="wrong",
                     subject_path=subject,
@@ -242,6 +280,21 @@ class P9OpenClawProjectionTests(unittest.TestCase):
         self.assertIn("Do not copy OpenClaw config", docs)
         self.assertIn("Do not use `openclaw wiki apply`", docs)
 
+    def test_openclaw_requires_git_root_unless_allow_dirty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            with self.assertRaisesRegex(ValueError, "topology root must be a git repository"):
+                write_openclaw_projection(
+                    root,
+                    project_id="openclaw_project",
+                    canonical_rev="fake",
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                    allow_dirty=False,
+                    clock=lambda: FIXED_TIME,
+                )
+
     def test_openclaw_outputs_are_gitignored(self):
         result = subprocess.run(
             [
@@ -268,10 +321,21 @@ class P9OpenClawProjectionTests(unittest.TestCase):
                 basis_claim_ids=["bad_ref", new_id("clm")],
                 file_refs=[
                     {
-                        "repo_id": "repo_knowledge_topology",
-                        "commit_sha": "abc123",
+                        "repo_id": {"unsafe_raw_text": "SECRET RAW"},
+                        "commit_sha": ".openclaw-wiki/cache/sha",
                         "path": "src/safe.py",
                         "path_at_capture": "raw/local_blobs/secret.pdf",
+                        "line_range": ["raw/local_blobs/secret.pdf"],
+                        "symbol": {"local_blob_hint": "raw/local_blobs/secret.pdf"},
+                        "anchor_kind": ["raw/local_blobs/list"],
+                        "excerpt_hash": ["openclaw wiki apply"],
+                        "verified_at": "OpenClaw owns canonical truth",
+                    },
+                    {
+                        "repo_id": "repo_knowledge_topology",
+                        "commit_sha": "abc123",
+                        "path": "src/also-safe.py",
+                        "line_range": [2, 4],
                     },
                     {
                         "repo_id": "repo_knowledge_topology",
@@ -302,9 +366,36 @@ class P9OpenClawProjectionTests(unittest.TestCase):
             self.assertNotIn("raw/local_blobs", text)
             self.assertNotIn("/Users/leofitz/private", text)
             self.assertNotIn("../private", text)
+            self.assertNotIn("unsafe_raw_text", text)
+            self.assertNotIn("openclaw wiki apply", text)
+            self.assertNotIn(".openclaw-wiki/cache", text)
             pack = json.loads(text)
             record = pack["records"][0]
-            self.assertEqual(record["file_refs"], [{"commit_sha": "abc123", "path": "src/safe.py", "repo_id": "repo_knowledge_topology"}])
+            refs_by_path = {item["path"]: item for item in record["file_refs"]}
+            self.assertEqual(refs_by_path["src/safe.py"], {"path": "src/safe.py"})
+            self.assertEqual(refs_by_path["src/also-safe.py"], {"commit_sha": "abc123", "line_range": [2, 4], "path": "src/also-safe.py", "repo_id": "repo_knowledge_topology"})
+
+    def test_openclaw_filters_audiences_and_tags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            node = visible_node(audiences=["openclaw", "raw/local_blobs/a"], tags=[".openclaw-wiki/cache", "safe"])
+            write_jsonl(root / "canonical/registry/nodes.jsonl", [node])
+            projection = write_openclaw_projection(
+                root,
+                project_id="openclaw_project",
+                canonical_rev="rev_current",
+                subject_repo_id="repo_knowledge_topology",
+                subject_head_sha="abc123",
+                allow_dirty=True,
+                clock=lambda: FIXED_TIME,
+            )
+            text = (projection / "runtime-pack.json").read_text(encoding="utf-8")
+            self.assertNotIn("raw/local_blobs/a", text)
+            self.assertNotIn(".openclaw-wiki/cache", text)
+            pack = json.loads(text)
+            self.assertEqual(pack["records"][0]["audiences"], ["openclaw"])
+            self.assertEqual(pack["records"][0]["tags"], ["safe"])
 
     def test_openclaw_strips_forbidden_summary_payloads(self):
         with tempfile.TemporaryDirectory() as tmp:
