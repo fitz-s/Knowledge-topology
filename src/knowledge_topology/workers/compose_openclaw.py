@@ -260,6 +260,12 @@ def safe_anchor_path(value: Any) -> str | None:
         return None
     if any(part in folded for part in FORBIDDEN_ANCHOR_PATH_PARTS):
         return None
+    if folded == "canonical" or folded.startswith("canonical/") or folded.startswith("projections/"):
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_./@+-]+", raw):
+        return None
+    if "/" not in raw and "." not in raw:
+        return None
     return raw
 
 
