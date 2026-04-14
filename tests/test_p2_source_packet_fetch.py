@@ -318,6 +318,64 @@ class P2SourcePacketFetchTests(unittest.TestCase):
             self.assertEqual(good.returncode, 0, good.stderr)
             self.assertIn("created source packet:", good.stdout)
 
+            video = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "knowledge_topology.cli",
+                    "ingest",
+                    "https://v.douyin.com/6l8q1jGwRl4/",
+                    "--root",
+                    tmp,
+                    "--note",
+                    "video note",
+                    "--subject",
+                    "repo_knowledge_topology",
+                    "--subject-head-sha",
+                    "abc123",
+                    "--base-canonical-rev",
+                    "rev_current",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(video.returncode, 0, video.stderr)
+            packet_path = Path(next(line.split(": ", 1)[1] for line in video.stdout.splitlines() if line.startswith("created source packet:")))
+            source_id = json.loads(packet_path.read_text(encoding="utf-8"))["id"]
+            downloaded = root / "downloaded.mp4"
+            downloaded.write_bytes(b"video bytes")
+            attached = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "knowledge_topology.cli",
+                    "video",
+                    "attach-artifact",
+                    "--root",
+                    tmp,
+                    "--source-id",
+                    source_id,
+                    "--artifact-kind",
+                    "video_file",
+                    "--artifact-path",
+                    str(downloaded),
+                    "--note",
+                    "operator download",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(attached.returncode, 0, attached.stderr)
+            self.assertIn("updated video source packet:", attached.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

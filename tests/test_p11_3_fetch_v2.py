@@ -14,6 +14,7 @@ from knowledge_topology.workers.digest import build_digest_model_request
 from knowledge_topology.workers.fetch import EXTERNAL_PUBLIC_TEXT_LIMIT
 from knowledge_topology.workers.fetch import FetchError
 from knowledge_topology.workers.fetch import FetchResponse
+from knowledge_topology.workers.fetch import attach_video_artifact
 from knowledge_topology.workers.fetch import classify_source
 from knowledge_topology.workers.fetch import ingest_source
 from knowledge_topology.workers.fetch import parse_video_platform
@@ -345,6 +346,81 @@ class P11FetchV2Tests(unittest.TestCase):
                 ingest(root, "https://www.tiktok.com/@user/video/123", content_mode="public_text", redistributable="yes")
             with self.assertRaisesRegex(FetchError, "excerpt_only"):
                 ingest(root, "https://youtu.be/abc123", content_mode="local_blob")
+
+    def test_video_artifact_attachment_stores_video_blob_outside_git_packet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            result = ingest(root, "https://v.douyin.com/6l8q1jGwRl4/")
+            outside = Path(tempfile.mkdtemp()) / "downloaded.mp4"
+            outside.write_bytes(b"fake video bytes")
+            updated_path = attach_video_artifact(
+                root,
+                source_id=json.loads(result.packet_path.read_text(encoding="utf-8"))["id"],
+                artifact_kind="video_file",
+                artifact_path=outside,
+                note="downloaded by operator",
+            )
+            packet = json.loads(updated_path.read_text(encoding="utf-8"))
+            blob = packet["artifacts"][-1]
+            self.assertEqual(blob["kind"], "local_blob_ref")
+            self.assertEqual(blob["artifact_kind"], "video_file")
+            self.assertEqual(blob["byte_length"], len(b"fake video bytes"))
+            self.assertIn("raw/local_blobs/", blob["storage_hint"])
+            self.assertNotIn(str(outside), json.dumps(packet))
+            self.assertTrue((root / blob["storage_hint"]).exists())
+
+    def test_video_text_artifact_attachment_tracks_bounded_transcript(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            result = ingest(root, "https://youtu.be/abc123")
+            transcript = root / "transcript.txt"
+            transcript.write_text("spoken words " * 2000, encoding="utf-8")
+            updated_path = attach_video_artifact(
+                root,
+                source_id=json.loads(result.packet_path.read_text(encoding="utf-8"))["id"],
+                artifact_kind="transcript",
+                artifact_path=transcript,
+                note="operator transcript",
+                track_text=True,
+            )
+            packet = json.loads(updated_path.read_text(encoding="utf-8"))
+            artifact = packet["artifacts"][-1]
+            self.assertEqual(artifact["kind"], "video_text_artifact")
+            self.assertEqual(artifact["artifact_kind"], "transcript")
+            self.assertEqual(artifact["path"], "transcript.md")
+            tracked = (updated_path.parent / "transcript.md").read_text(encoding="utf-8")
+            self.assertLessEqual(len(tracked.strip()), EXTERNAL_PUBLIC_TEXT_LIMIT)
+            self.assertIn("spoken words", tracked)
+
+    def test_video_artifact_attachment_rejects_non_video_packets_and_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            draft = root / "draft.md"
+            draft.write_text("note\n", encoding="utf-8")
+            result = ingest_source(
+                root,
+                str(draft),
+                note="draft",
+                depth="standard",
+                audience="builders",
+                subject_repo_id="repo_knowledge_topology",
+                subject_head_sha="abc123",
+                base_canonical_rev="rev_current",
+                redistributable="yes",
+            )
+            video = root / "video.mp4"
+            video.write_bytes(b"fake")
+            with self.assertRaisesRegex(FetchError, "video_platform"):
+                attach_video_artifact(root, source_id=result.packet_id, artifact_kind="video_file", artifact_path=video)
+
+            video_source = ingest(root, "https://v.douyin.com/6l8q1jGwRl4/")
+            link = root / "video-link.mp4"
+            link.symlink_to(video)
+            with self.assertRaisesRegex(FetchError, "regular non-symlink"):
+                attach_video_artifact(root, source_id=video_source.packet_id, artifact_kind="video_file", artifact_path=link)
 
 
 if __name__ == "__main__":

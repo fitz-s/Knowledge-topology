@@ -32,7 +32,7 @@ from knowledge_topology.workers.lint import run_lints, run_repo_lints, run_runti
 from knowledge_topology.workers.run_digest_queue import DigestQueueRunnerError, run_digest_queue
 from knowledge_topology.workers.writeback import WritebackError, writeback_session
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
-from knowledge_topology.workers.fetch import FetchError, ingest_source
+from knowledge_topology.workers.fetch import FetchError, attach_video_artifact, ingest_source
 from knowledge_topology.workers.init import init_topology
 from knowledge_topology.workers.reconcile import ReconcileError, reconcile_digest
 from knowledge_topology.subjects import SubjectRegistryError, add_subject, refresh_subject, resolve_subject, show_subject, utc_now
@@ -169,6 +169,21 @@ def build_parser() -> argparse.ArgumentParser:
     canonical_parity_parser.add_argument("--root", default=".", help="topology root")
     public_safe_parser = doctor_subparsers.add_parser("public-safe", help="report public-safe source packet issues")
     public_safe_parser.add_argument("--root", default=".", help="topology root")
+
+    video_parser = subparsers.add_parser("video", help="attach operator-captured video evidence")
+    video_subparsers = video_parser.add_subparsers(dest="video_command")
+    video_attach = video_subparsers.add_parser("attach-artifact", help="attach local video/transcript evidence to a video source packet")
+    video_attach.add_argument("--root", default=".", help="topology root")
+    video_attach.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_attach.add_argument(
+        "--artifact-kind",
+        required=True,
+        choices=["video_file", "transcript", "key_frames", "audio_summary", "landing_page_metadata"],
+        help="artifact role",
+    )
+    video_attach.add_argument("--artifact-path", required=True, help="local artifact file")
+    video_attach.add_argument("--note", default="operator captured artifact", help="artifact note")
+    video_attach.add_argument("--track-text", action="store_true", help="track bounded text excerpt instead of a local blob ref")
 
     openclaw_parser = subparsers.add_parser("openclaw", help="run OpenClaw live bridge operations")
     openclaw_subparsers = openclaw_parser.add_subparsers(dest="openclaw_command")
@@ -469,6 +484,20 @@ def main(argv: list[str] | None = None) -> int:
         for message in result.messages:
             print(message)
         return 0 if result.ok else 1
+    if args.command == "video" and args.video_command == "attach-artifact":
+        try:
+            packet_path = attach_video_artifact(
+                Path(args.root).expanduser().resolve(),
+                source_id=args.source_id,
+                artifact_kind=args.artifact_kind,
+                artifact_path=args.artifact_path,
+                note=args.note,
+                track_text=args.track_text,
+            )
+        except (FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video attach-artifact: {exc}\n")
+        print(f"updated video source packet: {packet_path}")
+        return 0
     if args.command == "openclaw" and args.openclaw_command == "capture-source":
         try:
             packet_path = create_runtime_source_packet(

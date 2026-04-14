@@ -97,6 +97,9 @@ Shipped after P11.7:
   TikTok, YouTube, Bilibili, Vimeo, and Instagram.
 - Platform video intake is metadata/capture-plan only. It does not try to turn a
   short link into a direct media download inside the public-safe fetch worker.
+- `topology video attach-artifact` binds downloaded local videos, transcripts,
+  key-frame descriptions, audio summaries, or landing metadata back to the
+  source packet through public-safe metadata and local-only blobs.
 
 ## Mainline Boundary
 

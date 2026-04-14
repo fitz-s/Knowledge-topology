@@ -46,6 +46,9 @@ Until a stricter copyright-aware checker exists:
 - video platform URLs are locator-only by default; tracked packets may include
   an operator-authored capture brief but not full media bytes or complete
   third-party transcripts unless rights are clear
+- downloaded platform videos can be attached as local-only blob evidence with
+  `topology video attach-artifact`; tracked packets store hashes, byte lengths,
+  and storage hints only
 
 ## External Fetch Safety
 

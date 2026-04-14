@@ -470,3 +470,20 @@ active subject/head. Rows may include `repo_id`, `commit_sha`, `path`,
 `line_range`, `symbol`, `anchor_kind`, `excerpt_hash`, and `verified_at`.
 Projection text surfaces may mention file-index metadata but must not inline the
 rows themselves.
+
+## Video Artifacts
+
+`video_platform` packets start as locator/capture-plan records. Local evidence
+may be attached later with `topology video attach-artifact`.
+
+Supported artifact roles:
+
+- `video_file`
+- `transcript`
+- `key_frames`
+- `audio_summary`
+- `landing_page_metadata`
+
+Binary/video artifacts are represented as `local_blob_ref` metadata with hash,
+byte length, and `raw/local_blobs/<source_id>/...` storage hints. Text artifacts
+may be tracked as bounded markdown excerpts when explicitly requested.

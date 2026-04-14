@@ -10,6 +10,7 @@ import json
 import re
 import socket
 import ssl
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -21,7 +22,7 @@ from knowledge_topology.ids import new_id
 from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.schema.source_packet import FetchChainEntry, SourceArtifact, LocalBlobRef, SourcePacket
 from knowledge_topology.storage.spool import create_job
-from knowledge_topology.storage.transaction import atomic_write_text
+from knowledge_topology.storage.transaction import atomic_write_text, atomic_writer
 
 
 class FetchError(ValueError):
@@ -73,6 +74,8 @@ VIDEO_PLATFORM_HOSTS = {
     "www.instagram.com": "instagram",
 }
 VIDEO_SHORTLINK_HOSTS = {"v.douyin.com", "vm.tiktok.com", "youtu.be", "b23.tv"}
+VIDEO_ARTIFACT_KINDS = {"video_file", "transcript", "key_frames", "audio_summary", "landing_page_metadata"}
+TEXT_VIDEO_ARTIFACT_KINDS = {"transcript", "key_frames", "audio_summary", "landing_page_metadata"}
 
 
 def utc_now_iso() -> str:
@@ -414,6 +417,116 @@ def video_capture_brief(artifact: dict[str, Any], note: str) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def safe_blob_filename(value: str) -> str:
+    name = Path(value).name
+    if not name or name in {".", ".."} or not re.fullmatch(r"[A-Za-z0-9_.@+-]{1,160}", name):
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+        suffix = Path(value).suffix.lower()
+        if suffix and re.fullmatch(r"\.[A-Za-z0-9]{1,12}", suffix):
+            return f"artifact-{digest}{suffix}"
+        return f"artifact-{digest}.bin"
+    return name
+
+
+def read_packet(paths: TopologyPaths, source_id: str) -> tuple[Path, SourcePacket]:
+    if not re.fullmatch(r"src_[A-Z0-9]{26}", source_id):
+        raise FetchError("source_id must use src_ opaque ID")
+    packet_path = paths.resolve(f"raw/packets/{source_id}/packet.json")
+    if packet_path.is_symlink() or not packet_path.is_file():
+        raise FetchError("source packet must be a regular non-symlink file")
+    try:
+        payload = json.loads(packet_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise FetchError(f"source packet JSON is invalid: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise FetchError("source packet must be a JSON object")
+    packet = SourcePacket(**payload)
+    packet.validate()
+    return packet_path, packet
+
+
+def attach_video_artifact(
+    root: str | Path,
+    *,
+    source_id: str,
+    artifact_kind: str,
+    artifact_path: str | Path,
+    note: str = "operator captured artifact",
+    track_text: bool = False,
+) -> Path:
+    if artifact_kind not in VIDEO_ARTIFACT_KINDS:
+        raise FetchError("artifact_kind must be one of: " + ", ".join(sorted(VIDEO_ARTIFACT_KINDS)))
+    paths = TopologyPaths.from_root(root)
+    packet_path, packet = read_packet(paths, source_id)
+    if packet.source_type != "video_platform":
+        raise FetchError("video artifacts can only attach to video_platform source packets")
+    candidate = Path(artifact_path).expanduser()
+    if candidate.is_symlink() or not candidate.is_file():
+        raise FetchError("artifact_path must be a regular non-symlink file")
+    data = candidate.read_bytes()
+    digest = sha256_bytes(data)
+    artifacts = list(packet.artifacts)
+    if track_text:
+        if artifact_kind not in TEXT_VIDEO_ARTIFACT_KINDS:
+            raise FetchError("track_text is only allowed for transcript, key_frames, audio_summary, or landing_page_metadata")
+        text = data.decode("utf-8", errors="replace")
+        body = _safe_excerpt(text, EXTERNAL_PUBLIC_TEXT_LIMIT)
+        relative = f"{artifact_kind}.md"
+        atomic_write_text(packet_path.parent / relative, body + "\n")
+        artifacts.append({
+            "kind": "video_text_artifact",
+            "artifact_kind": artifact_kind,
+            "path": relative,
+            "hash_sha256": sha256_text(body),
+            "source_hash_sha256": digest,
+            "byte_length": len(data),
+            "note": note,
+        })
+    else:
+        filename = safe_blob_filename(str(candidate))
+        storage_dir = paths.ensure_dir(f"raw/local_blobs/{source_id}")
+        storage_path = storage_dir / filename
+        with atomic_writer(storage_path) as temp_path:
+            with candidate.open("rb") as source, temp_path.open("wb") as target:
+                shutil.copyfileobj(source, target)
+        artifacts.append({
+            "kind": "local_blob_ref",
+            "artifact_kind": artifact_kind,
+            "hash_sha256": digest,
+            "byte_length": len(data),
+            "storage_hint": f"raw/local_blobs/{source_id}/{filename}",
+            "note": note,
+        })
+    updated = SourcePacket(
+        schema_version=packet.schema_version,
+        id=packet.id,
+        source_type=packet.source_type,
+        original_url=packet.original_url,
+        canonical_url=packet.canonical_url,
+        retrieved_at=packet.retrieved_at,
+        curator_note=packet.curator_note,
+        ingest_depth=packet.ingest_depth,
+        authority=packet.authority,
+        trust_scope=packet.trust_scope,
+        content_status=packet.content_status,
+        content_mode=packet.content_mode,
+        redistributable=packet.redistributable,
+        hash_original=packet.hash_original,
+        hash_normalized=packet.hash_normalized,
+        artifacts=artifacts,
+        fetch_chain=[
+            *packet.fetch_chain,
+            FetchChainEntry(
+                method="video_artifact_attach",
+                status="partial",
+                note=f"Attached {artifact_kind} artifact metadata",
+            ).to_dict(),
+        ],
+    )
+    atomic_write_text(packet_path, json.dumps(updated.to_dict(), indent=2, sort_keys=True) + "\n")
+    return packet_path
 
 
 def parse_github_artifact(value: str) -> dict[str, Any]:
