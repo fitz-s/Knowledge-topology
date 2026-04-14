@@ -16,6 +16,7 @@ from knowledge_topology.workers.fetch import FetchError
 from knowledge_topology.workers.fetch import FetchResponse
 from knowledge_topology.workers.fetch import classify_source
 from knowledge_topology.workers.fetch import ingest_source
+from knowledge_topology.workers.fetch import parse_video_platform
 from knowledge_topology.workers.fetch import parse_github_artifact
 from knowledge_topology.workers.fetch import validate_fetch_url
 from knowledge_topology.workers.init import init_topology
@@ -309,6 +310,41 @@ class P11FetchV2Tests(unittest.TestCase):
                     self.assertEqual(packet["content_status"], "blocked")
                     self.assertEqual(packet["fetch_chain"][0]["status"], "blocked")
                     self.assertFalse((result.packet_path.parent / "excerpt.md").exists())
+
+    def test_video_platform_shortlink_ingest_is_locator_only_and_does_not_fetch(self):
+        douyin_share = "https://v.douyin.com/6l8q1jGwRl4/ Slp:/ 06/05 K@W.MJ"
+        self.assertEqual(classify_source(douyin_share), "video_platform")
+        parsed = parse_video_platform(douyin_share)
+        self.assertEqual(parsed["platform"], "douyin")
+        self.assertTrue(parsed["shortlink"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+
+            def failing_fetcher(url: str, max_bytes: int) -> FetchResponse:
+                raise AssertionError("video_platform intake must not fetch network content")
+
+            result = ingest(root, douyin_share, fetcher=failing_fetcher)
+            packet = json.loads(result.packet_path.read_text(encoding="utf-8"))
+            excerpt = (result.packet_path.parent / "excerpt.md").read_text(encoding="utf-8")
+            self.assertEqual(packet["source_type"], "video_platform")
+            self.assertEqual(packet["content_status"], "partial")
+            self.assertEqual(packet["content_mode"], "excerpt_only")
+            self.assertEqual(packet["fetch_chain"][0]["method"], "video_platform_locator")
+            self.assertEqual(packet["artifacts"][0]["kind"], "video_platform_locator")
+            self.assertEqual(packet["artifacts"][0]["platform"], "douyin")
+            self.assertEqual(packet["artifacts"][0]["url"], "https://v.douyin.com/6l8q1jGwRl4/")
+            self.assertIn("Required Follow-Up Artifacts", excerpt)
+            self.assertIn("transcript_or_caption_text", excerpt)
+
+    def test_video_platform_rejects_public_text_and_local_blob_modes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            with self.assertRaisesRegex(FetchError, "excerpt_only"):
+                ingest(root, "https://www.tiktok.com/@user/video/123", content_mode="public_text", redistributable="yes")
+            with self.assertRaisesRegex(FetchError, "excerpt_only"):
+                ingest(root, "https://youtu.be/abc123", content_mode="local_blob")
 
 
 if __name__ == "__main__":

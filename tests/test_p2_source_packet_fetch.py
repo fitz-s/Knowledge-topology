@@ -35,6 +35,7 @@ class P2SourcePacketFetchTests(unittest.TestCase):
         self.assertEqual(classify_source("https://github.com/fitz-s/Knowledge-topology/pull/1"), "github_artifact")
         self.assertEqual(classify_source("https://example.com/post"), "article_html")
         self.assertEqual(classify_source("https://arxiv.org/abs/2401.00001"), "pdf_arxiv")
+        self.assertEqual(classify_source("https://v.douyin.com/6l8q1jGwRl4/"), "video_platform")
         self.assertEqual(classify_source("paper.pdf"), "pdf_arxiv")
 
     def test_public_text_requires_redistributable_yes(self):
@@ -190,6 +191,7 @@ class P2SourcePacketFetchTests(unittest.TestCase):
             ("https://github.com/fitz-s/Knowledge-topology/blob/main/README.md", "github_artifact"),
             ("https://example.com/article", "article_html"),
             ("https://arxiv.org/pdf/2401.00001.pdf", "pdf_arxiv"),
+            ("https://www.youtube.com/watch?v=abc123", "video_platform"),
         ]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

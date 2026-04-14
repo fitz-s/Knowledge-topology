@@ -72,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--base-canonical-rev", required=True, help="base canonical revision")
     ingest_parser.add_argument("--redistributable", choices=["yes", "no", "unknown"], default="unknown")
     ingest_parser.add_argument("--content-mode", choices=["public_text", "excerpt_only", "local_blob"])
-    ingest_parser.add_argument("--source-type", choices=["local_draft", "github_artifact", "article_html", "pdf_arxiv"])
+    ingest_parser.add_argument("--source-type", choices=["local_draft", "github_artifact", "article_html", "pdf_arxiv", "video_platform"])
 
     digest_parser = subparsers.add_parser("digest", help="validate and write digest artifacts")
     digest_parser.add_argument("--root", default=".", help="topology root")

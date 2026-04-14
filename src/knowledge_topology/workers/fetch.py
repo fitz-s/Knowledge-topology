@@ -51,6 +51,28 @@ EXTERNAL_PUBLIC_TEXT_LIMIT = 8000
 HTML_FETCH_LIMIT = 1024 * 1024
 PDF_FETCH_LIMIT = 5 * 1024 * 1024
 PINNED_SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
+URL_RE = re.compile(r"https?://[^\s]+")
+VIDEO_PLATFORM_HOSTS = {
+    "douyin.com": "douyin",
+    "v.douyin.com": "douyin",
+    "www.douyin.com": "douyin",
+    "iesdouyin.com": "douyin",
+    "tiktok.com": "tiktok",
+    "www.tiktok.com": "tiktok",
+    "vm.tiktok.com": "tiktok",
+    "youtube.com": "youtube",
+    "www.youtube.com": "youtube",
+    "m.youtube.com": "youtube",
+    "youtu.be": "youtube",
+    "bilibili.com": "bilibili",
+    "www.bilibili.com": "bilibili",
+    "b23.tv": "bilibili",
+    "vimeo.com": "vimeo",
+    "www.vimeo.com": "vimeo",
+    "instagram.com": "instagram",
+    "www.instagram.com": "instagram",
+}
+VIDEO_SHORTLINK_HOSTS = {"v.douyin.com", "vm.tiktok.com", "youtu.be", "b23.tv"}
 
 
 def utc_now_iso() -> str:
@@ -63,6 +85,23 @@ def sha256_text(text: str) -> str:
 
 def sha256_bytes(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def first_http_url(value: str) -> str:
+    match = URL_RE.search(value.strip())
+    if match:
+        return match.group(0)
+    return value
+
+
+def video_platform_for_host(host: str) -> str | None:
+    normalized = host.lower().removeprefix("m.")
+    if normalized in VIDEO_PLATFORM_HOSTS:
+        return VIDEO_PLATFORM_HOSTS[normalized]
+    for suffix, platform in VIDEO_PLATFORM_HOSTS.items():
+        if normalized.endswith("." + suffix):
+            return platform
+    return None
 
 
 def require_preconditions(subject_repo_id: str, subject_head_sha: str, base_canonical_rev: str) -> None:
@@ -78,7 +117,8 @@ def require_preconditions(subject_repo_id: str, subject_head_sha: str, base_cano
 def classify_source(value: str, explicit: str | None = None) -> str:
     if explicit:
         return explicit
-    parsed = urlparse(value)
+    source_value = first_http_url(value)
+    parsed = urlparse(source_value)
     if parsed.scheme in {"http", "https"}:
         host = parsed.netloc.lower()
         path = parsed.path.lower()
@@ -86,6 +126,8 @@ def classify_source(value: str, explicit: str | None = None) -> str:
             return "github_artifact"
         if host in {"arxiv.org", "www.arxiv.org"} or path.endswith(".pdf"):
             return "pdf_arxiv"
+        if parsed.hostname and video_platform_for_host(parsed.hostname) is not None:
+            return "video_platform"
         return "article_html"
     suffix = Path(value).suffix.lower()
     if suffix == ".pdf":
@@ -96,19 +138,20 @@ def classify_source(value: str, explicit: str | None = None) -> str:
 def default_content_mode(source_type: str, redistributable: str) -> str:
     if source_type == "local_draft" and redistributable == "yes":
         return "public_text"
-    if source_type == "pdf_arxiv":
+    if source_type in {"pdf_arxiv", "video_platform"}:
         return "excerpt_only"
     return "excerpt_only"
 
 
 def canonicalize_source(value: str, source_type: str) -> tuple[str | None, str | None]:
-    parsed = urlparse(value)
+    source_value = first_http_url(value)
+    parsed = urlparse(source_value)
     if parsed.scheme in {"http", "https"}:
         if source_type == "pdf_arxiv":
-            arxiv = parse_arxiv(value)
+            arxiv = parse_arxiv(source_value)
             if arxiv is not None:
-                return value, arxiv["abs_url"]
-        return value, value
+                return source_value, arxiv["abs_url"]
+        return source_value, source_value
     return str(Path(value).expanduser()), None
 
 
@@ -320,6 +363,59 @@ def arxiv_metadata_artifact(value: str) -> dict[str, str] | None:
     return {"kind": "arxiv_metadata", **parsed}
 
 
+def parse_video_platform(value: str) -> dict[str, Any]:
+    source_url = first_http_url(value)
+    parsed = urlparse(source_url)
+    if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
+        raise FetchError("video platform source must be an http(s) URL")
+    platform = video_platform_for_host(parsed.hostname)
+    if platform is None:
+        raise FetchError("unsupported video platform host")
+    host = parsed.hostname.lower()
+    return {
+        "kind": "video_platform_locator",
+        "platform": platform,
+        "host": host,
+        "url": source_url,
+        "shortlink": host in VIDEO_SHORTLINK_HOSTS,
+        "requires_operator_capture": True,
+        "recommended_artifacts": [
+            "transcript_or_caption_text",
+            "key_frame_descriptions_or_manifest",
+            "audio_summary",
+            "public_landing_page_metadata",
+        ],
+    }
+
+
+def video_capture_brief(artifact: dict[str, Any], note: str) -> str:
+    lines = [
+        "# Video Platform Intake",
+        "",
+        "This packet records a platform video locator. It does not claim to contain",
+        "the full video, transcript, or downloadable media bytes.",
+        "",
+        f"- platform: {artifact['platform']}",
+        f"- host: {artifact['host']}",
+        f"- url: {artifact['url']}",
+        f"- shortlink: {str(artifact['shortlink']).lower()}",
+        f"- curator_note: {note}",
+        "",
+        "## Required Follow-Up Artifacts",
+        "",
+        "- transcript_or_caption_text",
+        "- key_frame_descriptions_or_manifest",
+        "- audio_summary",
+        "- public_landing_page_metadata",
+        "",
+        "Store only excerpts or operator-authored descriptions unless redistribution",
+        "rights are clear. Full media bytes belong in local-only blob storage, not in",
+        "tracked raw packets.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def parse_github_artifact(value: str) -> dict[str, Any]:
     parsed = urlparse(value)
     host = parsed.netloc.lower()
@@ -461,6 +557,8 @@ def build_source_packet(
         raise FetchError("external public_text requires redistributable=yes")
     if resolved_type == "pdf_arxiv" and mode == "public_text":
         raise FetchError("pdf_arxiv does not support public_text mode in P11.3")
+    if resolved_type == "video_platform" and mode != "excerpt_only":
+        raise FetchError("video_platform supports excerpt_only locator intake only")
     original_url, canonical_url = canonicalize_source(value, resolved_type)
     packet_id = new_id("src")
     artifacts: list[dict[str, Any]] = []
@@ -588,6 +686,29 @@ def build_source_packet(
                     content_status = "blocked"
         else:
             fetch_chain = [FetchChainEntry(method="github_metadata", status="partial", note="Mutable or metadata-only GitHub artifact").to_dict()]
+    elif resolved_type == "video_platform":
+        artifact = parse_video_platform(value)
+        artifacts.append({
+            **artifact,
+            "note": "Platform video locator captured without direct media download.",
+        })
+        brief = video_capture_brief(artifact, note)
+        files["excerpt.md"] = brief
+        hash_original = sha256_text(artifact["url"])
+        hash_normalized = sha256_text(brief)
+        artifacts.append({
+            "kind": "video_capture_brief",
+            "path": "excerpt.md",
+            "hash_sha256": hash_normalized,
+        })
+        fetch_chain = [
+            FetchChainEntry(
+                method="video_platform_locator",
+                status="partial",
+                note="Captured platform URL; operator must provide transcript/key-frame/audio artifacts.",
+            ).to_dict()
+        ]
+        content_status = "partial"
     else:
         artifacts.append(SourceArtifact(kind="manifest", note="Unknown source type; excerpt_only default").to_dict())
 

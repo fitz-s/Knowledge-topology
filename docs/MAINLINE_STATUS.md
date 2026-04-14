@@ -89,6 +89,15 @@ The following items are intentionally not shipped in the P0-P9 mainline:
 - OpenClaw QMD live indexing validation
 - OpenClaw natural-language runtime context sanitizer
 
+## Real-Use Intake Surfaces
+
+Shipped after P11.7:
+
+- `video_platform` source packets for platform video locators such as Douyin,
+  TikTok, YouTube, Bilibili, Vimeo, and Instagram.
+- Platform video intake is metadata/capture-plan only. It does not try to turn a
+  short link into a direct media download inside the public-safe fetch worker.
+
 ## Mainline Boundary
 
 P0-P9 delivered the repo-root canonical substrate, builder-first loop pieces,

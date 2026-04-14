@@ -108,6 +108,7 @@ opaque IDs.
 - `github_artifact`
 - `article_html`
 - `pdf_arxiv`
+- `video_platform`
 
 `content_status`:
 
