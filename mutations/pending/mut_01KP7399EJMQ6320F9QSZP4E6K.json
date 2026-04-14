@@ -1,0 +1,77 @@
+{
+  "base_canonical_rev": "a01e9050b86b0a1d35d78496413d9e83f1605c4b",
+  "changes": [
+    {
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP738KQ9D1ZKYWJPJE29BB7E",
+      "node_id": "nd_01KP7399EJ7QX6WPHKWB4T0P2C",
+      "op": "propose_node",
+      "reason": "Video digest prompts must enforce domain-neutral argument-structure extraction rather than hard-coding vocabulary from one source.",
+      "source_id": "src_01KP738KQ9YHQP3D68SVMYQDE1",
+      "status": "draft",
+      "type": "decision"
+    },
+    {
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP738KQ9D1ZKYWJPJE29BB7E",
+      "node_id": "nd_01KP7399EJ83HCMB4V4Z145KYD",
+      "op": "propose_node",
+      "reason": "Generic library prompts may require structural fidelity, but the source evidence must determine the domain vocabulary and claims.",
+      "source_id": "src_01KP738KQ9YHQP3D68SVMYQDE1",
+      "status": "draft",
+      "type": "invariant"
+    },
+    {
+      "applies_to": "future prompt and digest changes",
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP738KQ9D1ZKYWJPJE29BB7E",
+      "node_id": "nd_01KP7399EJH2TPSEPA8WW60DNZ",
+      "op": "propose_node",
+      "reason": "When improving knowledge depth, encode reusable extraction dimensions instead of optimizing prompts or tests around the current example source.",
+      "source_id": "src_01KP738KQ9YHQP3D68SVMYQDE1",
+      "status": "draft",
+      "type": "task_lesson"
+    }
+  ],
+  "evidence_refs": [
+    "dg_01KP738KQ9D1ZKYWJPJE29BB7E",
+    "src_01KP738KQ9YHQP3D68SVMYQDE1"
+  ],
+  "human_gate_class": null,
+  "id": "mut_01KP7399EJMQ6320F9QSZP4E6K",
+  "merge_confidence": "medium",
+  "metadata": {
+    "commands_run": [
+      {
+        "command": "git commit -F -",
+        "exit_code": 0,
+        "notes": "committed domain-neutral video digest prompt fix"
+      }
+    ],
+    "file_refs": [],
+    "tests_run": [
+      {
+        "command": "rg -n statistics-specific terms prompts tests src || true",
+        "notes": "verified no single-video statistical vocabulary remains in generic prompt/tests",
+        "result": "passed"
+      },
+      {
+        "command": "PYTHONPATH=src python -m pytest tests/test_p11_3_fetch_v2.py tests/test_p11_2_digest_runner.py tests/test_p2_source_packet_fetch.py tests/test_p3_digest_contract.py -q",
+        "notes": "focused digest/fetch suite",
+        "result": "passed"
+      },
+      {
+        "command": "PYTHONPATH=src python -m pytest -q",
+        "notes": "full repository suite",
+        "result": "passed"
+      }
+    ],
+    "writeback_summary": ".tmp/domain_neutral_video_digest_writeback.json"
+  },
+  "proposal_type": "session_writeback",
+  "proposed_by": "writeback",
+  "requires_human": false,
+  "schema_version": "1.0",
+  "subject_head_sha": "a01e9050b86b0a1d35d78496413d9e83f1605c4b",
+  "subject_repo_id": "repo_knowledge_topology"
+}
