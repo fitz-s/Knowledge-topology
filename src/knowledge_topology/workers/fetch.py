@@ -1,14 +1,21 @@
-"""P2 source packet and fetch worker."""
+"""P2/P11.3 source packet and fetch worker."""
 
 from __future__ import annotations
 
 import hashlib
+import html
+import http.client
+import ipaddress
 import json
 import re
+import socket
+import ssl
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urlparse
+from typing import Callable, Any
+from urllib.parse import urljoin, urlparse
 
 from knowledge_topology.ids import new_id
 from knowledge_topology.paths import TopologyPaths
@@ -28,12 +35,34 @@ class IngestResult:
     digest_job_path: Path
 
 
+@dataclass(frozen=True)
+class FetchResponse:
+    final_url: str
+    status_code: int
+    content_type: str | None
+    body: bytes
+
+
+FetchCallable = Callable[[str, int], FetchResponse]
+
+
+EXCERPT_LIMIT = 800
+EXTERNAL_PUBLIC_TEXT_LIMIT = 8000
+HTML_FETCH_LIMIT = 1024 * 1024
+PDF_FETCH_LIMIT = 5 * 1024 * 1024
+PINNED_SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
+
+
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def sha256_text(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def sha256_bytes(data: bytes) -> str:
+    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def require_preconditions(subject_repo_id: str, subject_head_sha: str, base_canonical_rev: str) -> None:
@@ -53,9 +82,9 @@ def classify_source(value: str, explicit: str | None = None) -> str:
     if parsed.scheme in {"http", "https"}:
         host = parsed.netloc.lower()
         path = parsed.path.lower()
-        if "github.com" in host:
+        if host in {"github.com", "www.github.com", "raw.githubusercontent.com"}:
             return "github_artifact"
-        if "arxiv.org" in host or path.endswith(".pdf"):
+        if host in {"arxiv.org", "www.arxiv.org"} or path.endswith(".pdf"):
             return "pdf_arxiv"
         return "article_html"
     suffix = Path(value).suffix.lower()
@@ -75,44 +104,344 @@ def default_content_mode(source_type: str, redistributable: str) -> str:
 def canonicalize_source(value: str, source_type: str) -> tuple[str | None, str | None]:
     parsed = urlparse(value)
     if parsed.scheme in {"http", "https"}:
+        if source_type == "pdf_arxiv":
+            arxiv = parse_arxiv(value)
+            if arxiv is not None:
+                return value, arxiv["abs_url"]
         return value, value
     return str(Path(value).expanduser()), None
 
 
-def parse_github_artifact(value: str) -> dict[str, str | None]:
+def _safe_excerpt(text: str, limit: int = EXCERPT_LIMIT) -> str:
+    compact = " ".join(text.split())
+    return compact[:limit]
+
+
+class TextExtractor(HTMLParser):
+    """Conservative visible-text extractor for article HTML."""
+
+    SKIP_TAGS = {"script", "style", "noscript", "svg", "form", "nav"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.skip_stack: list[bool] = []
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = {name.lower(): (value or "") for name, value in attrs}
+        style = attributes.get("style", "").replace(" ", "").lower()
+        hidden = (
+            tag.lower() in self.SKIP_TAGS
+            or "hidden" in attributes
+            or attributes.get("aria-hidden", "").lower() == "true"
+            or "display:none" in style
+            or "visibility:hidden" in style
+        )
+        self.skip_stack.append(hidden)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.skip_stack:
+            self.skip_stack.pop()
+
+    def handle_data(self, data: str) -> None:
+        if not any(self.skip_stack) and data.strip():
+            self.parts.append(data)
+
+    def handle_comment(self, data: str) -> None:
+        return
+
+    def text(self) -> str:
+        return html.unescape(" ".join(" ".join(self.parts).split()))
+
+
+def extract_html_text(raw: bytes, content_type: str | None) -> str:
+    charset = "utf-8"
+    if content_type:
+        match = re.search(r"charset=([A-Za-z0-9_.-]+)", content_type, re.IGNORECASE)
+        if match:
+            charset = match.group(1)
+    text = raw.decode(charset, errors="replace")
+    parser = TextExtractor()
+    parser.feed(text)
+    return parser.text()
+
+
+def safe_ip_address(value: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return ip.is_global and value != "169.254.169.254"
+
+
+def resolve_public_addresses(host: str, resolver: Callable[..., Any] = socket.getaddrinfo) -> list[str]:
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if not safe_ip_address(str(literal)):
+            raise FetchError("URL host resolves to blocked private/local address")
+        return [str(literal)]
+    addresses = []
+    for item in resolver(host, None, type=socket.SOCK_STREAM):
+        address = item[4][0]
+        if not safe_ip_address(address):
+            raise FetchError("URL host resolves to blocked private/local address")
+        addresses.append(address)
+    if not addresses:
+        raise FetchError("URL host did not resolve")
+    return sorted(set(addresses))
+
+
+def validate_fetch_url(url: str, resolver: Callable[..., Any] = socket.getaddrinfo) -> list[str]:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise FetchError("only http and https URLs may be fetched")
+    if not parsed.hostname:
+        raise FetchError("URL host is required")
+    return resolve_public_addresses(parsed.hostname, resolver=resolver)
+
+
+class BoundHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, original_host: str, connect_host: str, *args: Any, **kwargs: Any):
+        super().__init__(original_host, *args, **kwargs)
+        self.connect_host = connect_host
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection((self.connect_host, self.port), self.timeout, self.source_address)
+
+
+class BoundHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, original_host: str, connect_host: str, *args: Any, **kwargs: Any):
+        super().__init__(original_host, *args, **kwargs)
+        self.connect_host = connect_host
+
+    def connect(self) -> None:
+        raw_sock = socket.create_connection((self.connect_host, self.port), self.timeout, self.source_address)
+        context = self._context or ssl.create_default_context()
+        self.sock = context.wrap_socket(raw_sock, server_hostname=self.host)
+
+
+def default_fetch(url: str, max_bytes: int, *, timeout: int = 15, redirects: int = 5) -> FetchResponse:
+    current = url
+    for _ in range(redirects + 1):
+        addresses = validate_fetch_url(current)
+        parsed = urlparse(current)
+        assert parsed.hostname is not None
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query
+        connection_cls = BoundHTTPSConnection if parsed.scheme == "https" else BoundHTTPConnection
+        connection = connection_cls(parsed.hostname, addresses[0], port=port, timeout=timeout)
+        try:
+            connection.request("GET", path, headers={"Host": parsed.netloc, "User-Agent": "knowledge-topology-fetch/1"})
+            response = connection.getresponse()
+            status = response.status
+            content_type = response.getheader("Content-Type")
+            if status in {301, 302, 303, 307, 308}:
+                location = response.getheader("Location")
+                if not location:
+                    raise FetchError("redirect response did not include Location")
+                current = urljoin(current, location)
+                validate_fetch_url(current)
+                continue
+            body = response.read(max_bytes + 1)
+            if len(body) > max_bytes:
+                raise FetchError("fetched response exceeded size limit")
+            return FetchResponse(final_url=current, status_code=status, content_type=content_type, body=body)
+        finally:
+            connection.close()
+    raise FetchError("too many redirects")
+
+
+def fetch_or_block(url: str, *, max_bytes: int, fetcher: FetchCallable | None) -> FetchResponse:
+    if fetcher is not None:
+        return fetcher(url, max_bytes)
+    return default_fetch(url, max_bytes)
+
+
+def fetch_failure_blocks_packet(exc: FetchError) -> bool:
+    message = str(exc)
+    return not (
+        "blocked private/local" in message
+        or "only http and https" in message
+        or "URL host is required" in message
+        or "too many redirects" in message
+    )
+
+
+def exception_blocks_packet(exc: BaseException) -> bool:
+    if isinstance(exc, FetchError):
+        return fetch_failure_blocks_packet(exc)
+    return isinstance(exc, OSError)
+
+
+def fetch_metadata_artifact(response: FetchResponse) -> dict[str, Any]:
+    return {
+        "kind": "fetch_metadata",
+        "content_type": response.content_type,
+        "status_code": response.status_code,
+        "final_url": response.final_url,
+        "byte_length": len(response.body),
+    }
+
+
+def pdf_metadata_artifact(value: str, data: bytes, content_type: str | None = "application/pdf") -> dict[str, Any]:
+    return {
+        "kind": "pdf_metadata",
+        "content_type": content_type,
+        "byte_length": len(data),
+        "hash_sha256": sha256_bytes(data),
+        "source": "local_file" if not urlparse(value).scheme else "url",
+    }
+
+
+def parse_arxiv(value: str) -> dict[str, str] | None:
     parsed = urlparse(value)
+    if parsed.netloc.lower() not in {"arxiv.org", "www.arxiv.org"}:
+        return None
+    match = re.search(r"/(?:abs|pdf)/([^/?#]+)", parsed.path)
+    if not match:
+        return None
+    arxiv_id = match.group(1).removesuffix(".pdf")
+    return {
+        "arxiv_id": arxiv_id,
+        "abs_url": f"https://arxiv.org/abs/{arxiv_id}",
+        "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
+    }
+
+
+def arxiv_metadata_artifact(value: str) -> dict[str, str] | None:
+    parsed = parse_arxiv(value)
+    if parsed is None:
+        return None
+    return {"kind": "arxiv_metadata", **parsed}
+
+
+def parse_github_artifact(value: str) -> dict[str, Any]:
+    parsed = urlparse(value)
+    host = parsed.netloc.lower()
     parts = [part for part in parsed.path.split("/") if part]
+    if host not in {"github.com", "www.github.com", "raw.githubusercontent.com"}:
+        raise FetchError("GitHub artifact URL must use github.com or raw.githubusercontent.com")
+    if host == "raw.githubusercontent.com":
+        if len(parts) < 4:
+            raise FetchError("raw GitHub URL must include owner, repository, ref, and path")
+        owner, repo_name, ref = parts[0], parts[1], parts[2]
+        path = "/".join(parts[3:])
+        pinned = bool(PINNED_SHA_RE.fullmatch(ref))
+        return {
+            "kind": "github_blob",
+            "repo": f"{owner}/{repo_name}",
+            "artifact_type": "blob",
+            "ref": ref,
+            "path": path,
+            "commit_sha": ref if pinned else None,
+            "mutable_ref": not pinned,
+            "ambiguous_ref": not pinned,
+            "raw_url": value,
+        }
     if len(parts) < 2:
         raise FetchError("GitHub artifact URL must include owner and repository")
     repo = f"{parts[0]}/{parts[1]}"
-    artifact: dict[str, str | None] = {
-        "kind": "github_artifact",
+    artifact: dict[str, Any] = {
+        "kind": "github_repo",
         "repo": repo,
-        "artifact_type": None,
+        "artifact_type": "repo",
         "ref": None,
         "path": None,
         "commit_sha": None,
     }
-    if len(parts) >= 4 and parts[2] in {"blob", "tree"}:
+    if len(parts) >= 4 and parts[2] == "pull" and parts[3].endswith(".diff"):
+        number = parts[3].removesuffix(".diff")
+        artifact.update({"kind": "github_diff", "artifact_type": "diff", "number": number, "ref": number})
+    elif len(parts) >= 5 and parts[2] == "pull" and parts[4] == "files":
+        artifact.update({"kind": "github_diff", "artifact_type": "diff", "number": parts[3], "ref": parts[3]})
+    elif len(parts) >= 4 and parts[2] == "pull":
+        artifact.update({"kind": "github_pull", "artifact_type": "pull", "number": parts[3], "ref": parts[3]})
+    elif len(parts) >= 4 and parts[2] == "issues":
+        artifact.update({"kind": "github_issue", "artifact_type": "issue", "number": parts[3], "ref": parts[3]})
+    elif len(parts) >= 4 and parts[2] == "commit":
+        sha = parts[3]
+        artifact.update({"kind": "github_commit", "artifact_type": "commit", "ref": sha, "commit_sha": sha if PINNED_SHA_RE.fullmatch(sha) else None})
+    elif len(parts) >= 5 and parts[2] == "blob" and PINNED_SHA_RE.fullmatch(parts[3]):
         ref = parts[3]
-        artifact["artifact_type"] = parts[2]
-        artifact["ref"] = ref
-        artifact["path"] = "/".join(parts[4:]) or None
-        if re.fullmatch(r"[0-9a-fA-F]{40}", ref):
-            artifact["commit_sha"] = ref
-    elif len(parts) >= 4 and parts[2] in {"pull", "issues", "commit"}:
-        artifact["artifact_type"] = parts[2]
-        artifact["ref"] = parts[3]
-        if parts[2] == "commit" and re.fullmatch(r"[0-9a-fA-F]{40}", parts[3]):
-            artifact["commit_sha"] = parts[3]
-    else:
-        artifact["artifact_type"] = "repo"
+        path = "/".join(parts[4:])
+        artifact.update({
+            "kind": "github_blob",
+            "artifact_type": "blob",
+            "ref": ref,
+            "path": path,
+            "commit_sha": ref,
+            "mutable_ref": False,
+            "ambiguous_ref": False,
+            "raw_url": f"https://raw.githubusercontent.com/{repo}/{ref}/{path}",
+        })
+    elif len(parts) >= 5 and parts[2] == "blob":
+        ref = parts[3]
+        artifact.update({
+            "kind": "github_blob",
+            "artifact_type": "blob",
+            "ref": ref,
+            "path": "/".join(parts[4:]),
+            "commit_sha": None,
+            "mutable_ref": True,
+            "ambiguous_ref": True,
+        })
     return artifact
 
 
-def _safe_excerpt(text: str, limit: int = 800) -> str:
-    compact = " ".join(text.split())
-    return compact[:limit]
+def github_should_fetch(artifact: dict[str, Any]) -> bool:
+    if artifact.get("artifact_type") == "diff":
+        return True
+    return artifact.get("artifact_type") == "blob" and artifact.get("commit_sha") is not None
+
+
+def bounded_external_text(text: str, *, mode: str) -> str:
+    limit = EXTERNAL_PUBLIC_TEXT_LIMIT if mode == "public_text" else EXCERPT_LIMIT
+    return _safe_excerpt(text, limit=limit)
+
+
+def safe_local_file_under_root(root: Path, value: str, *, suffix: str | None, label: str) -> Path:
+    root = root.resolve()
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    if ".." in Path(value).parts:
+        raise FetchError(f"{label} path must not contain traversal")
+    try:
+        lexical_relative = candidate.relative_to(root)
+    except ValueError:
+        lexical_relative = None
+    if lexical_relative is not None:
+        lexical_current = root
+        for part in lexical_relative.parts[:-1]:
+            lexical_current = lexical_current / part
+            if lexical_current.is_symlink():
+                raise FetchError(f"{label} parent path is unsafe")
+    else:
+        for parent in candidate.parents:
+            if parent.is_symlink() and parent.resolve() not in root.parents:
+                raise FetchError(f"{label} parent path is unsafe")
+    resolved_candidate = candidate.resolve()
+    current = root
+    try:
+        relative = resolved_candidate.relative_to(root)
+    except ValueError as exc:
+        raise FetchError(f"{label} path must resolve inside the topology root") from exc
+    for part in relative.parts[:-1]:
+        current = current / part
+        if current.is_symlink() or not current.is_dir():
+            raise FetchError(f"{label} parent path is unsafe")
+    if ".topology" in relative.parts:
+        raise FetchError(f"{label} path must not resolve through .topology")
+    if suffix is not None and resolved_candidate.suffix.lower() != suffix:
+        raise FetchError(f"{label} path must end with {suffix}")
+    if candidate.is_symlink() or not resolved_candidate.is_file():
+        raise FetchError(f"{label} path must be a regular non-symlink file")
+    return resolved_candidate
 
 
 def build_source_packet(
@@ -123,13 +452,19 @@ def build_source_packet(
     redistributable: str = "unknown",
     content_mode: str | None = None,
     source_type: str | None = None,
+    topology_root: str | Path | None = None,
+    fetcher: FetchCallable | None = None,
 ) -> tuple[SourcePacket, dict[str, str]]:
     resolved_type = classify_source(value, source_type)
     mode = content_mode or default_content_mode(resolved_type, redistributable)
+    if resolved_type != "local_draft" and mode == "public_text" and redistributable != "yes":
+        raise FetchError("external public_text requires redistributable=yes")
+    if resolved_type == "pdf_arxiv" and mode == "public_text":
+        raise FetchError("pdf_arxiv does not support public_text mode in P11.3")
     original_url, canonical_url = canonicalize_source(value, resolved_type)
     packet_id = new_id("src")
-    artifacts: list[dict[str, str]] = []
-    fetch_chain = [FetchChainEntry(method="metadata_only", status="partial", note="P2 does not perform network fetch").to_dict()]
+    artifacts: list[dict[str, Any]] = []
+    fetch_chain = [FetchChainEntry(method="metadata_only", status="partial", note="P11.3 metadata/excerpt path").to_dict()]
     hash_original: str | None = None
     hash_normalized: str | None = None
     files: dict[str, str] = {}
@@ -154,21 +489,107 @@ def build_source_packet(
             artifacts.append(SourceArtifact(kind="excerpt", path="excerpt.md", hash_sha256=hash_normalized).to_dict())
         fetch_chain = [FetchChainEntry(method="local_file", status="complete", note="Read local draft from disk").to_dict()]
         content_status = "complete"
+    elif resolved_type == "article_html":
+        try:
+            response = fetch_or_block(value, max_bytes=HTML_FETCH_LIMIT, fetcher=fetcher)
+        except (FetchError, OSError) as exc:
+            if not exception_blocks_packet(exc):
+                raise
+            artifacts.append({"kind": "fetch_metadata", "final_url": value, "note": _safe_excerpt(str(exc), 200)})
+            content_status = "blocked"
+            fetch_chain = [FetchChainEntry(method="http_fetch", status="blocked", note=_safe_excerpt(str(exc), 200)).to_dict()]
+        else:
+            artifacts.append(fetch_metadata_artifact(response))
+            if response.status_code >= 400:
+                content_status = "blocked"
+                fetch_chain = [FetchChainEntry(method="http_fetch", status="blocked", note=f"HTTP {response.status_code}").to_dict()]
+            else:
+                text = extract_html_text(response.body, response.content_type)
+                body = bounded_external_text(text, mode=mode)
+                filename = "content.md" if mode == "public_text" else "excerpt.md"
+                files[filename] = body + "\n"
+                hash_original = sha256_bytes(response.body)
+                hash_normalized = sha256_text(body)
+                artifacts.append({"kind": "html_excerpt", "path": filename, "hash_sha256": hash_normalized})
+                fetch_chain = [FetchChainEntry(method="http_fetch", status="complete", note="Fetched bounded article excerpt").to_dict()]
+                content_status = "complete" if mode == "public_text" else "partial"
+                canonical_url = response.final_url
     elif resolved_type == "pdf_arxiv":
-        artifacts.append(SourceArtifact(kind="manifest", note="PDF/arXiv fetch deferred; store safe metadata only").to_dict())
-        if mode == "local_blob":
-            blob_ref = LocalBlobRef(hash_sha256=sha256_text(value), storage_hint=f"raw/local_blobs/{packet_id}").to_dict()
-            artifacts.append({
-                "kind": "local_blob_ref",
-                **blob_ref,
-                "note": "Locator hash only; full binary content is not fetched in P2 and must stay outside Git.",
-            })
+        data: bytes | None = None
+        parsed = urlparse(value)
+        if parsed.scheme in {"http", "https"}:
+            arxiv_artifact = arxiv_metadata_artifact(value)
+            if arxiv_artifact is not None:
+                artifacts.append(arxiv_artifact)
+            try:
+                response = fetch_or_block(value, max_bytes=PDF_FETCH_LIMIT, fetcher=fetcher)
+            except (FetchError, OSError) as exc:
+                if not exception_blocks_packet(exc):
+                    raise
+                content_status = "blocked"
+                artifacts.append({"kind": "fetch_metadata", "final_url": value, "note": _safe_excerpt(str(exc), 200)})
+                fetch_chain = [FetchChainEntry(method="http_fetch", status="blocked", note=_safe_excerpt(str(exc), 200)).to_dict()]
+            else:
+                artifacts.append(fetch_metadata_artifact(response))
+                data = response.body if response.status_code < 400 else None
+                if response.status_code >= 400:
+                    content_status = "blocked"
+                    fetch_chain = [FetchChainEntry(method="http_fetch", status="blocked", note=f"HTTP {response.status_code}").to_dict()]
+                else:
+                    canonical_url = canonicalize_source(value, resolved_type)[1]
+                    fetch_chain = [FetchChainEntry(method="http_fetch", status="complete", note="Fetched PDF metadata bytes").to_dict()]
+        else:
+            if topology_root is None:
+                raise FetchError("local PDF intake requires topology root")
+            pdf_path = safe_local_file_under_root(Path(topology_root).resolve(), value, suffix=".pdf", label="local PDF")
+            data = pdf_path.read_bytes()
+            fetch_chain = [FetchChainEntry(method="local_pdf", status="complete", note="Read local PDF metadata bytes").to_dict()]
+        if data is not None:
+            hash_original = sha256_bytes(data)
+            artifacts.append(pdf_metadata_artifact(value, data))
+            summary = f"PDF metadata excerpt\nbyte_length: {len(data)}\nhash_sha256: {hash_original}\n"
+            files["excerpt.md"] = summary
+            hash_normalized = sha256_text(summary)
+            artifacts.append({"kind": "pdf_excerpt", "path": "excerpt.md", "hash_sha256": hash_normalized})
+            content_status = "partial"
+            if mode == "local_blob":
+                artifacts.append({
+                    "kind": "local_blob_ref",
+                    **LocalBlobRef(hash_sha256=hash_original, storage_hint=f"raw/local_blobs/{packet_id}").to_dict(),
+                    "note": "Full PDF bytes stay outside Git.",
+                })
     elif resolved_type == "github_artifact":
         artifact = parse_github_artifact(value)
-        artifact["note"] = "GitHub artifact metadata captured; commit_sha is null when URL is not pinned to a commit."
-        artifacts.append(artifact)
+        artifacts.append({**artifact, "note": "GitHub artifact metadata captured; mutable refs are metadata-only."})
+        if github_should_fetch(artifact):
+            fetch_url = artifact.get("raw_url") or value
+            try:
+                response = fetch_or_block(str(fetch_url), max_bytes=HTML_FETCH_LIMIT, fetcher=fetcher)
+            except (FetchError, OSError) as exc:
+                if not exception_blocks_packet(exc):
+                    raise
+                content_status = "blocked"
+                artifacts.append({"kind": "fetch_metadata", "final_url": str(fetch_url), "note": _safe_excerpt(str(exc), 200)})
+                fetch_chain = [FetchChainEntry(method="github_fetch", status="blocked", note=_safe_excerpt(str(exc), 200)).to_dict()]
+            else:
+                artifacts.append(fetch_metadata_artifact(response))
+                if response.status_code < 400:
+                    text = response.body.decode("utf-8", errors="replace")
+                    body = bounded_external_text(text, mode=mode)
+                    filename = "content.md" if mode == "public_text" else "excerpt.md"
+                    files[filename] = body + "\n"
+                    hash_original = sha256_bytes(response.body)
+                    hash_normalized = sha256_text(body)
+                    artifacts.append({"kind": "github_excerpt", "path": filename, "hash_sha256": hash_normalized})
+                    fetch_chain = [FetchChainEntry(method="github_fetch", status="complete", note="Fetched bounded GitHub artifact excerpt").to_dict()]
+                    content_status = "complete" if mode == "public_text" else "partial"
+                else:
+                    fetch_chain = [FetchChainEntry(method="github_fetch", status="blocked", note=f"HTTP {response.status_code}").to_dict()]
+                    content_status = "blocked"
+        else:
+            fetch_chain = [FetchChainEntry(method="github_metadata", status="partial", note="Mutable or metadata-only GitHub artifact").to_dict()]
     else:
-        artifacts.append(SourceArtifact(kind="manifest", note="Article fetch deferred; excerpt_only default").to_dict())
+        artifacts.append(SourceArtifact(kind="manifest", note="Unknown source type; excerpt_only default").to_dict())
 
     packet = SourcePacket(
         schema_version="1.0",
@@ -206,20 +627,16 @@ def ingest_source(
     redistributable: str = "unknown",
     content_mode: str | None = None,
     source_type: str | None = None,
+    fetcher: FetchCallable | None = None,
 ) -> IngestResult:
     paths = TopologyPaths.from_root(root)
     require_preconditions(subject_repo_id, subject_head_sha, base_canonical_rev)
     resolved_type = classify_source(value, source_type)
     if resolved_type == "local_draft":
-        local_path = Path(value).expanduser()
-        if not local_path.is_absolute():
-            local_path = paths.root / local_path
-        resolved_local = local_path.resolve()
-        if resolved_local != paths.root and paths.root not in resolved_local.parents:
-            raise FetchError("local draft path must resolve inside the topology root")
-        if ".topology" in resolved_local.parts:
-            raise FetchError("local draft path must not resolve through .topology")
-        value = str(resolved_local)
+        local_path = safe_local_file_under_root(paths.root, value, suffix=None, label="local draft")
+        value = str(local_path)
+    elif resolved_type == "pdf_arxiv" and not urlparse(value).scheme:
+        value = str(safe_local_file_under_root(paths.root, value, suffix=".pdf", label="local PDF"))
     packet, files = build_source_packet(
         value,
         note=note,
@@ -227,6 +644,8 @@ def ingest_source(
         redistributable=redistributable,
         content_mode=content_mode,
         source_type=resolved_type,
+        topology_root=paths.root,
+        fetcher=fetcher,
     )
     packet_dir = paths.ensure_dir(f"raw/packets/{packet.id}")
     for relative, text in files.items():

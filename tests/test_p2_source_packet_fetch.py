@@ -14,7 +14,19 @@ sys.path.insert(0, str(SRC))
 from knowledge_topology.schema.source_packet import SourcePacketError
 from knowledge_topology.storage.spool import SpoolError, read_job
 from knowledge_topology.workers.fetch import build_source_packet, classify_source, ingest_source
+from knowledge_topology.workers.fetch import FetchResponse
 from knowledge_topology.workers.init import init_topology
+
+
+def fake_fetch(url: str, max_bytes: int) -> FetchResponse:
+    if url.endswith(".pdf"):
+        return FetchResponse(final_url=url, status_code=200, content_type="application/pdf", body=b"%PDF-1.4\nfixture\n")
+    return FetchResponse(
+        final_url=url,
+        status_code=200,
+        content_type="text/html; charset=utf-8",
+        body=b"<html><body><main>fixture article body</main></body></html>",
+    )
 
 
 class P2SourcePacketFetchTests(unittest.TestCase):
@@ -192,6 +204,7 @@ class P2SourcePacketFetchTests(unittest.TestCase):
                     subject_repo_id="repo_knowledge_topology",
                     subject_head_sha="abc123",
                     base_canonical_rev="rev_current",
+                    fetcher=fake_fetch,
                 )
                 packet = json.loads(result.packet_path.read_text(encoding="utf-8"))
                 self.assertEqual(packet["source_type"], expected_type)
@@ -219,6 +232,7 @@ class P2SourcePacketFetchTests(unittest.TestCase):
                 subject_head_sha="abc123",
                 base_canonical_rev="rev_current",
                 content_mode="local_blob",
+                fetcher=fake_fetch,
             )
             packet_dir = result.packet_path.parent
             packet = json.loads(result.packet_path.read_text(encoding="utf-8"))

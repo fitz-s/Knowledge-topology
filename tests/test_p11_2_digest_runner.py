@@ -22,6 +22,7 @@ from knowledge_topology.storage.spool import read_job
 from knowledge_topology.storage.transaction import atomic_write_text
 from knowledge_topology.workers.digest import DigestWorkerError
 from knowledge_topology.workers.digest import build_digest_model_request
+from knowledge_topology.workers.fetch import FetchResponse
 from knowledge_topology.workers.fetch import ingest_source
 from knowledge_topology.workers.init import init_topology
 from knowledge_topology.workers.run_digest_queue import run_digest_queue
@@ -73,6 +74,7 @@ class P11DigestRunnerTests(unittest.TestCase):
         redistributable: str = "yes",
         source_type: str | None = None,
         value: str | None = None,
+        fetcher=None,
     ) -> str:
         if value is None:
             draft = root / "draft.md"
@@ -90,6 +92,7 @@ class P11DigestRunnerTests(unittest.TestCase):
             redistributable=redistributable,
             content_mode=content_mode,
             source_type=source_type,
+            fetcher=fetcher,
         )
         return result.packet_id
 
@@ -442,6 +445,12 @@ class P11DigestRunnerTests(unittest.TestCase):
                 content_mode="local_blob",
                 redistributable="unknown",
                 source_type="pdf_arxiv",
+                fetcher=lambda url, max_bytes: FetchResponse(
+                    final_url=url,
+                    status_code=200,
+                    content_type="application/pdf",
+                    body=b"%PDF fixture\n",
+                ),
             )
             request = build_digest_model_request(root, source_id)
             serialized = json.dumps(request.to_dict(), sort_keys=True)

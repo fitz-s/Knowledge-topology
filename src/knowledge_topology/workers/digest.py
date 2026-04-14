@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,29 @@ PACKET_METADATA_FIELDS = [
     "hash_original",
     "hash_normalized",
 ]
-ARTIFACT_FIELDS = {"kind", "path", "hash_sha256", "note"}
+ARTIFACT_FIELDS = {
+    "kind",
+    "path",
+    "hash_sha256",
+    "note",
+    "content_type",
+    "status_code",
+    "final_url",
+    "byte_length",
+    "arxiv_id",
+    "abs_url",
+    "pdf_url",
+    "repo",
+    "artifact_type",
+    "number",
+    "ref",
+    "commit_sha",
+    "mutable_ref",
+    "raw_url",
+}
+SAFE_ARTIFACT_PATHS = {"content.md", "excerpt.md"}
+SAFE_URL_FIELDS = {"final_url", "raw_url", "abs_url", "pdf_url"}
+SAFE_TOKEN_FIELDS = {"repo", "ref", "path", "commit_sha", "number", "arxiv_id"}
 
 
 def render_digest_markdown(digest: Digest, source_packet: dict[str, Any]) -> str:
@@ -138,14 +161,41 @@ def sanitized_artifacts(source_packet: dict[str, Any]) -> list[dict[str, Any]]:
         sanitized: dict[str, Any] = {}
         for field in ARTIFACT_FIELDS:
             value = artifact.get(field)
+            if isinstance(value, bool):
+                sanitized[field] = value
+                continue
+            if isinstance(value, int):
+                sanitized[field] = value
+                continue
+            if value is None:
+                continue
             if not isinstance(value, str) or not value.strip():
                 continue
-            if field == "path" and value not in {"content.md", "excerpt.md"}:
+            if not safe_artifact_string(field, value, artifact.get("kind")):
                 continue
             sanitized[field] = " ".join(value.split())[:500]
         if sanitized:
             artifacts.append(sanitized)
     return artifacts
+
+
+def safe_artifact_string(field: str, value: str, artifact_kind: Any) -> bool:
+    lowered = value.casefold()
+    if any(marker in lowered for marker in ("raw/local_blobs", "local_blobs", "private", "cache")):
+        return False
+    if field == "path":
+        if value in SAFE_ARTIFACT_PATHS:
+            return True
+        if artifact_kind == "github_blob":
+            return bool(re.fullmatch(r"[A-Za-z0-9_./@+-]+", value)) and ".." not in Path(value).parts
+        return False
+    if field in SAFE_URL_FIELDS:
+        return value.startswith("http://") or value.startswith("https://")
+    if field == "repo":
+        return bool(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value))
+    if field in SAFE_TOKEN_FIELDS:
+        return bool(re.fullmatch(r"[A-Za-z0-9_./@+-]+", value))
+    return True
 
 
 def sanitized_packet_metadata(source_packet: dict[str, Any]) -> dict[str, Any]:

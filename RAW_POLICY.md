@@ -38,6 +38,21 @@ Until a stricter copyright-aware checker exists:
 - preserve provenance and location
 - avoid storing complete third-party articles, papers, or transcripts
 - prefer claim/evidence maps over copied source text
+- P11.3 caps tracked external `public_text` bodies at 8,000 characters even
+  when `redistributable=yes`
+- PDF/arXiv `public_text` is rejected in P11.3; store metadata/excerpt and
+  optional local-only blob references instead
+
+## External Fetch Safety
+
+P11.3 fetches are bounded and public-safe:
+
+- reject local/private/metadata network targets before fetch
+- re-check redirect targets
+- bind production connections to validated public addresses or an equivalent
+  resolver/connector contract
+- keep network tests deterministic through local fixtures or injected fetchers
+- do not infer redistribution rights from a URL, including GitHub URLs
 
 ## Fetch Failure
 
