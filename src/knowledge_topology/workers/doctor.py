@@ -8,12 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from knowledge_topology.workers.compose_openclaw import FILE_INDEX_PATH, location_hash, projected_file_index
 from knowledge_topology.ids import is_valid_id
 from knowledge_topology.paths import QUEUE_KINDS, QUEUE_STATES, TopologyPaths
 from knowledge_topology.schema.loader import load_json
 from knowledge_topology.schema.source_packet import SourcePacket
 from knowledge_topology.storage.registry import RegistryError
 from knowledge_topology.storage.registry import read_jsonl
+from knowledge_topology.subjects import SubjectRegistryError, subject_projection_authority
 
 
 @dataclass(frozen=True)
@@ -150,20 +152,26 @@ def doctor_projections(
         messages.append(f"{openclaw}: OpenClaw projection parent is symlinked")
         return DoctorResult(ok=False, messages=messages)
     runtime = openclaw / "runtime-pack.json"
+    file_index = openclaw / "file-index.json"
     manifest = openclaw / "wiki-mirror/manifest.json"
-    if runtime.exists() or manifest.exists():
-        for path in [runtime, openclaw / "runtime-pack.md", openclaw / "memory-prompt.md", manifest]:
+    if runtime.exists() or manifest.exists() or file_index.exists():
+        for path in [runtime, file_index, openclaw / "runtime-pack.md", openclaw / "memory-prompt.md", manifest]:
             if not path.exists():
                 messages.append(f"{path}: OpenClaw projection file missing")
             elif symlinked(paths.root, path):
                 messages.append(f"{path}: OpenClaw projection file is symlinked")
         try:
             runtime_payload = json.loads(runtime.read_text(encoding="utf-8")) if runtime.exists() and not symlinked(paths.root, runtime) else {}
+            file_index_payload = json.loads(file_index.read_text(encoding="utf-8")) if file_index.exists() and not symlinked(paths.root, file_index) else []
             manifest_payload = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() and not symlinked(paths.root, manifest) else {}
         except json.JSONDecodeError as exc:
             messages.append(f"{runtime}: OpenClaw projection JSON invalid: {exc}")
             runtime_payload = {}
+            file_index_payload = []
             manifest_payload = {}
+        if file_index.exists() and file_index_payload and (not isinstance(file_index_payload, list) or not all(isinstance(item, dict) for item in file_index_payload)):
+            messages.append(f"{file_index}: OpenClaw file index must be a JSON array of objects")
+            file_index_payload = []
         for field, expected in {
             "project_id": project_id,
             "canonical_rev": canonical_rev,
@@ -176,6 +184,33 @@ def doctor_projections(
                 messages.append(f"OpenClaw projection {field} metadata mismatch")
             if expected is not None and runtime_value != expected:
                 messages.append(f"OpenClaw projection {field} is stale")
+        if isinstance(runtime_payload, dict):
+            if runtime_payload.get("file_index_path") != FILE_INDEX_PATH:
+                messages.append("OpenClaw projection file_index_path metadata mismatch")
+            runtime_subject = runtime_payload.get("subject_repo_id")
+            runtime_head = runtime_payload.get("subject_head_sha")
+            if isinstance(runtime_subject, str) and isinstance(runtime_head, str):
+                try:
+                    _, current_location, current_head = subject_projection_authority(paths.root, runtime_subject)
+                except SubjectRegistryError as exc:
+                    messages.append(f"OpenClaw projection subject binding invalid: {exc}")
+                    current_head = runtime_head
+                    current_location = None
+                if current_location is not None and runtime_payload.get("subject_location_hash") != location_hash(current_location):
+                    messages.append("OpenClaw projection subject_location_hash metadata mismatch")
+                if current_head != runtime_head:
+                    messages.append("OpenClaw projection subject_head_sha is stale")
+                expected_rows, expected_truncated = projected_file_index(
+                    paths,
+                    subject_repo_id=runtime_subject,
+                    subject_head_sha=current_head,
+                )
+                if file_index_payload != expected_rows:
+                    messages.append("OpenClaw projection file-index contents mismatch")
+                if runtime_payload.get("file_index_count") != len(expected_rows):
+                    messages.append("OpenClaw projection file_index_count metadata mismatch")
+                if runtime_payload.get("file_index_truncated") is not expected_truncated:
+                    messages.append("OpenClaw projection file_index_truncated metadata mismatch")
         pages = manifest_payload.get("pages", [])
         if isinstance(pages, list):
             for page in pages:

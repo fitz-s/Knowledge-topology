@@ -54,7 +54,6 @@ class P10MainlineClosureTests(unittest.TestCase):
         status = read("docs/MAINLINE_STATUS.md")
         plan = read("docs/IMPLEMENTATION_PLAN.md")
         deferred = [
-            "topology subject add",
             "audio/video transcript resolver",
             "deep social thread expansion resolver",
             "Codex topology MCP registration",
@@ -65,12 +64,11 @@ class P10MainlineClosureTests(unittest.TestCase):
             "OpenClaw memory-wiki import or live validation",
             "OpenClaw QMD live indexing validation",
             "OpenClaw natural-language runtime context sanitizer",
-            "OpenClaw file-ref projection with subject-file index",
         ]
         for item in deferred:
             self.assertIn(item, status)
         self.assertIn("P11.5 shipped doctor subcommands", plan)
-        self.assertIn("Deferred subject commands", plan)
+        self.assertIn("P11.6 shipped subject commands", plan)
         self.assertIn("topology MCP registration is deferred", plan)
         self.assertIn("Claude changed-file lint/writeback hooks are deferred", plan)
         self.assertIn("structured-only local runtime projection", plan)
@@ -78,14 +76,17 @@ class P10MainlineClosureTests(unittest.TestCase):
     def test_cli_reality_matches_status(self):
         plan = read("docs/IMPLEMENTATION_PLAN.md")
         top_help = cli("--help")
-        for command in ["init", "ingest", "digest", "reconcile", "apply", "compose", "lint", "doctor", "writeback", "agent-guard"]:
+        for command in ["init", "ingest", "digest", "reconcile", "apply", "subject", "compose", "lint", "doctor", "writeback", "agent-guard"]:
             self.assertIn(command, top_help)
             self.assertIn(f"topology {command}", plan)
-        self.assertNotIn("subject", top_help)
 
         compose_help = cli("compose", "--help")
         self.assertIn("builder", compose_help)
         self.assertIn("openclaw", compose_help)
+
+        subject_help = cli("subject", "--help")
+        for shipped in ["add", "refresh", "show", "resolve"]:
+            self.assertIn(shipped, subject_help)
 
         doctor_help = cli("doctor", "--help")
         self.assertIn("stale-anchors", doctor_help)

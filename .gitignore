@@ -10,6 +10,7 @@ ops/reports/tmp/
 ops/reports/cache/
 projections/builders/
 projections/tasks/
+projections/openclaw/file-index.json
 projections/openclaw/runtime-pack.md
 projections/openclaw/runtime-pack.json
 projections/openclaw/memory-prompt.md

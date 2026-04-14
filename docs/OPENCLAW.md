@@ -28,6 +28,7 @@ topology compose openclaw \
 
 Outputs are generated and ignored by Git:
 
+- `projections/openclaw/file-index.json`
 - `projections/openclaw/runtime-pack.json`
 - `projections/openclaw/runtime-pack.md`
 - `projections/openclaw/memory-prompt.md`
@@ -77,6 +78,7 @@ authority.
 
 QMD may index only:
 
+- `projections/openclaw/file-index.json`
 - `projections/openclaw/wiki-mirror/`
 - `projections/openclaw/runtime-pack.json`
 - `projections/openclaw/runtime-pack.md`

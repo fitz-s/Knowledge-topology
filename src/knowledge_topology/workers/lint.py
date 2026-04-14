@@ -6,10 +6,12 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from knowledge_topology.workers.compose_openclaw import FILE_INDEX_PATH, location_hash, projected_file_index
 from knowledge_topology.ids import is_valid_id
 from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.schema.loader import load_json
 from knowledge_topology.schema.source_packet import SourcePacket, SourcePacketError
+from knowledge_topology.subjects import SubjectRegistryError, subject_projection_authority
 
 
 @dataclass(frozen=True)
@@ -234,9 +236,11 @@ def lint_openclaw_projection_shape(paths: TopologyPaths) -> list[str]:
         return [f"{openclaw}: OpenClaw projection root is symlinked"]
     if not openclaw.exists():
         return messages
-    required = ["runtime-pack.json", "runtime-pack.md", "memory-prompt.md", "wiki-mirror/manifest.json"]
+    required = ["runtime-pack.json", "file-index.json", "runtime-pack.md", "memory-prompt.md", "wiki-mirror/manifest.json"]
     if not any((openclaw / relative).exists() for relative in required):
         return messages
+    runtime_payload: dict[str, object] = {}
+    file_index_payload: list[dict[str, object]] = []
     for relative in required:
         path = openclaw / relative
         if not path.exists():
@@ -251,8 +255,17 @@ def lint_openclaw_projection_shape(paths: TopologyPaths) -> list[str]:
             except json.JSONDecodeError as exc:
                 messages.append(f"{path}: invalid JSON: {exc}")
                 continue
+            if relative == "file-index.json":
+                if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+                    messages.append(f"{path}: must contain a JSON array of objects")
+                    continue
+                file_index_payload = payload
+                continue
             if not isinstance(payload, dict):
                 messages.append(f"{path}: must contain a JSON object")
+                continue
+            if relative == "runtime-pack.json":
+                runtime_payload = payload
             if relative == "wiki-mirror/manifest.json" and isinstance(payload, dict):
                 for page in payload.get("pages", []):
                     if not isinstance(page, dict) or not isinstance(page.get("path"), str):
@@ -261,6 +274,34 @@ def lint_openclaw_projection_shape(paths: TopologyPaths) -> list[str]:
                     page_path = openclaw / "wiki-mirror" / page["path"]
                     if ".." in Path(page["path"]).parts or has_symlink_parent(paths.root, page_path) or not page_path.exists():
                         messages.append(f"{page_path}: OpenClaw wiki page is unsafe")
+    if runtime_payload:
+        runtime_json = openclaw / "runtime-pack.json"
+        if runtime_payload.get("file_index_path") != FILE_INDEX_PATH:
+            messages.append(f"{runtime_json}: file_index_path must equal {FILE_INDEX_PATH}")
+        subject_repo_id = runtime_payload.get("subject_repo_id")
+        subject_head_sha = runtime_payload.get("subject_head_sha")
+        if isinstance(subject_repo_id, str) and isinstance(subject_head_sha, str):
+            try:
+                _, current_location, current_head = subject_projection_authority(paths.root, subject_repo_id)
+            except SubjectRegistryError as exc:
+                messages.append(f"{runtime_json}: {exc}")
+                current_head = subject_head_sha
+                current_location = None
+            if current_location is not None and runtime_payload.get("subject_location_hash") != location_hash(current_location):
+                messages.append(f"{runtime_json}: subject_location_hash mismatch")
+            if current_head != subject_head_sha:
+                messages.append(f"{runtime_json}: subject_head_sha is stale")
+            expected_rows, expected_truncated = projected_file_index(
+                paths,
+                subject_repo_id=subject_repo_id,
+                subject_head_sha=current_head,
+            )
+            if file_index_payload != expected_rows:
+                messages.append(f"{openclaw / 'file-index.json'}: file-index contents mismatch")
+            if runtime_payload.get("file_index_count") != len(expected_rows):
+                messages.append(f"{runtime_json}: file_index_count mismatch")
+            if runtime_payload.get("file_index_truncated") is not expected_truncated:
+                messages.append(f"{runtime_json}: file_index_truncated mismatch")
     return messages
 
 

@@ -405,6 +405,9 @@ Subject command surface:
 - `topology subject show`
 - `topology subject resolve`
 
+`topology subject add`, `refresh`, `show`, and `resolve` emit deterministic
+JSON. `resolve` includes `resolved_location`.
+
 ## Builder Pack
 
 Fixed outputs:
@@ -438,3 +441,31 @@ contradiction pressure, open gaps, and a writeback reminder.
 - `contradiction_pressure`
 - legacy integer `count`
 - structured `counts`
+
+## OpenClaw Projection
+
+Generated local-only outputs:
+
+- `projections/openclaw/file-index.json`
+- `projections/openclaw/runtime-pack.json`
+- `projections/openclaw/runtime-pack.md`
+- `projections/openclaw/memory-prompt.md`
+- `projections/openclaw/wiki-mirror/manifest.json`
+
+`runtime-pack.json` includes:
+
+- `project_id`
+- `canonical_rev`
+- `subject_repo_id`
+- `subject_head_sha`
+- `subject_state_verified`
+- `file_index_path`
+- `file_index_count`
+- `file_index_truncated`
+- `generated_at`
+
+`file-index.json` is a JSON array of public file-reference rows filtered to the
+active subject/head. Rows may include `repo_id`, `commit_sha`, `path`,
+`line_range`, `symbol`, `anchor_kind`, `excerpt_hash`, and `verified_at`.
+Projection text surfaces may mention file-index metadata but must not inline the
+rows themselves.

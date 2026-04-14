@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -15,6 +16,7 @@ from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.schema.mutation_pack import HUMAN_GATE_CLASSES
 from knowledge_topology.storage.registry import RegistryError, read_jsonl
 from knowledge_topology.storage.transaction import atomic_write_text
+from knowledge_topology.subjects import SubjectRegistryError, subject_for_projection
 
 
 class OpenClawComposeError(ValueError):
@@ -78,6 +80,7 @@ FORBIDDEN_SLUG_TOKENS = (
 WRITEBACK_POLICY = {
     "read_surfaces": [
         "projections/openclaw/runtime-pack.json",
+        "projections/openclaw/file-index.json",
         "projections/openclaw/runtime-pack.md",
         "projections/openclaw/memory-prompt.md",
         "projections/openclaw/wiki-mirror/",
@@ -107,10 +110,20 @@ WRITEBACK_POLICY = {
     "wiki_policy": "read_only_mirror_no_openclaw_wiki_apply_authority",
 }
 PROJECTED_AUDIENCES = {"openclaw", "all"}
+FILE_INDEX_PATH = "projections/openclaw/file-index.json"
+FILE_INDEX_LIMIT = 200
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def location_hash(path: Path) -> str:
+    return hashlib.sha256(str(path).encode("utf-8")).hexdigest()
+
+
+def normalize_token_text(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
 
 
 def require_nonblank(value: str, field: str) -> None:
@@ -143,6 +156,123 @@ def subject_verified(subject_path: str | Path | None, *, subject_head_sha: str, 
     if not allow_dirty and state.head_sha != subject_head_sha:
         raise OpenClawComposeError("subject_head_sha does not match current subject HEAD")
     return True
+
+
+def safe_file_index_path(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    folded = raw.casefold().replace("\\", "/")
+    if (
+        "\\" in raw
+        or raw.startswith("~")
+        or "%" in raw
+        or folded.startswith("file:")
+        or re.match(r"^[A-Za-z]:[\\/]", raw)
+    ):
+        return None
+    path = Path(raw)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    if folded == "canonical" or folded.startswith("canonical/") or folded.startswith("projections/"):
+        return None
+    parts = [part.casefold() for part in path.parts if part not in {"", "."}]
+    if "local_blobs" in parts or ".tmp" in parts or ".openclaw" in parts or ".openclaw-wiki" in parts:
+        return None
+    if "private" in parts or "cache" in parts:
+        return None
+    if any(parts[index:index + 2] == ["raw", "local_blobs"] for index in range(len(parts) - 1)):
+        return None
+    stem_tokens = {token for token in normalize_token_text(path.stem).split("-") if token}
+    blocked_token_sets = [
+        {"mutate", "canonical"},
+        {"override", "policy"},
+        {"disregard", "instructions"},
+        {"use", "bash"},
+        {"ignore", "read", "only", "banner"},
+    ]
+    if any(blocked <= stem_tokens for blocked in blocked_token_sets):
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_./@+-]+", raw):
+        return None
+    if "/" not in raw and "." not in raw:
+        return None
+    return raw
+
+
+def safe_file_index_line_range(value: Any) -> tuple[list[int] | str | None, str]:
+    if isinstance(value, list) and len(value) == 2 and all(isinstance(item, int) and item > 0 for item in value):
+        return value, f"{value[0]:010d}-{value[1]:010d}"
+    if isinstance(value, str) and re.fullmatch(r"[1-9]\d*-[1-9]\d*", value):
+        start, end = value.split("-", 1)
+        return value, f"{int(start):010d}-{int(end):010d}"
+    return None, ""
+
+
+def safe_file_index_symbol(value: Any) -> str | None:
+    if isinstance(value, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.:-]{0,120}", value):
+        return value
+    return None
+
+
+def safe_file_index_excerpt_hash(value: Any) -> str | None:
+    if isinstance(value, str) and (
+        re.fullmatch(r"[0-9A-Fa-f]{8,128}", value) or re.fullmatch(r"sha256:[A-Za-z0-9._-]+", value)
+    ):
+        return value
+    return None
+
+
+def safe_file_index_verified_at(value: Any) -> str | None:
+    if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T[0-9:.-]+Z", value):
+        return value
+    return None
+
+
+def safe_file_index_row(row: dict[str, Any], *, subject_repo_id: str, subject_head_sha: str) -> tuple[dict[str, Any] | None, tuple[str, str, str, str, str, str, str]]:
+    if row.get("repo_id") != subject_repo_id or row.get("commit_sha") != subject_head_sha:
+        return None, ("", "", "", "", "", "", "")
+    path = safe_file_index_path(row.get("path"))
+    if path is None:
+        return None, ("", "", "", "", "", "", "")
+    output: dict[str, Any] = {"repo_id": subject_repo_id, "commit_sha": subject_head_sha, "path": path}
+    line_range, line_range_key = safe_file_index_line_range(row.get("line_range"))
+    if line_range is not None:
+        output["line_range"] = line_range
+    symbol = safe_file_index_symbol(row.get("symbol"))
+    if symbol is not None:
+        output["symbol"] = symbol
+    anchor_kind = row.get("anchor_kind")
+    if anchor_kind in {"symbol", "line", "excerpt"}:
+        output["anchor_kind"] = anchor_kind
+    excerpt_hash = safe_file_index_excerpt_hash(row.get("excerpt_hash"))
+    if excerpt_hash is not None:
+        output["excerpt_hash"] = excerpt_hash
+    verified_at = safe_file_index_verified_at(row.get("verified_at"))
+    if verified_at is not None:
+        output["verified_at"] = verified_at
+    sort_key = (
+        output["path"],
+        output.get("symbol", ""),
+        line_range_key,
+        output.get("anchor_kind", ""),
+        output.get("excerpt_hash", ""),
+        output.get("verified_at", ""),
+        json.dumps(output, sort_keys=True),
+    )
+    return output, sort_key
+
+
+def projected_file_index(paths: TopologyPaths, *, subject_repo_id: str, subject_head_sha: str) -> tuple[list[dict[str, Any]], bool]:
+    rows = safe_read_jsonl(paths, "canonical/registry/file_refs.jsonl", "file refs")
+    safe_rows: list[tuple[tuple[str, str, str, str, str, str, str], dict[str, Any]]] = []
+    for row in rows:
+        safe, key = safe_file_index_row(row, subject_repo_id=subject_repo_id, subject_head_sha=subject_head_sha)
+        if safe is not None:
+            safe_rows.append((key, safe))
+    safe_rows.sort(key=lambda item: item[0])
+    truncated = len(safe_rows) > FILE_INDEX_LIMIT
+    return [item for _, item in safe_rows[:FILE_INDEX_LIMIT]], truncated
 
 
 def safe_openclaw_dir(paths: TopologyPaths) -> Path:
@@ -408,7 +538,10 @@ def metadata(
     subject_repo_id: str,
     subject_head_sha: str,
     subject_state_verified: bool,
+    subject_location_hash: str,
     generated_at: str,
+    file_index_count: int,
+    file_index_truncated: bool,
 ) -> dict[str, Any]:
     return {
         "schema_version": "1.0",
@@ -417,6 +550,10 @@ def metadata(
         "subject_repo_id": subject_repo_id,
         "subject_head_sha": subject_head_sha,
         "subject_state_verified": subject_state_verified,
+        "subject_location_hash": subject_location_hash,
+        "file_index_path": FILE_INDEX_PATH,
+        "file_index_count": file_index_count,
+        "file_index_truncated": file_index_truncated,
         "generated_at": generated_at,
     }
 
@@ -456,6 +593,8 @@ def render_runtime_markdown(pack: dict[str, Any]) -> str:
         f"- Canonical revision: {pack['canonical_rev']}",
         f"- Subject: {pack['subject_repo_id']} @ {pack['subject_head_sha']}",
         f"- Subject state verified: {str(pack['subject_state_verified']).lower()}",
+        f"- Subject location hash: {pack['subject_location_hash']}",
+        f"- File index: {pack['file_index_path']} ({pack['file_index_count']} rows, truncated={str(pack['file_index_truncated']).lower()})",
         "",
         "## Records",
         "",
@@ -479,6 +618,10 @@ def render_memory_prompt(pack: dict[str, Any]) -> str:
         f"- subject_repo_id: {pack['subject_repo_id']}",
         f"- subject_head_sha: {pack['subject_head_sha']}",
         f"- subject_state_verified: {str(pack['subject_state_verified']).lower()}",
+        f"- subject_location_hash: {pack['subject_location_hash']}",
+        f"- file_index_path: {pack['file_index_path']}",
+        f"- file_index_count: {pack['file_index_count']}",
+        f"- file_index_truncated: {str(pack['file_index_truncated']).lower()}",
         f"- generated_at: {pack['generated_at']}",
         "",
         "## Runtime Instructions",
@@ -515,29 +658,49 @@ def write_openclaw_projection(
         safe_metadata_value(value, field)
     paths = TopologyPaths.from_root(root)
     require_topology_state(paths.root, canonical_rev=canonical_rev, allow_dirty=allow_dirty)
-    verified = subject_verified(subject_path, subject_head_sha=subject_head_sha, allow_dirty=allow_dirty)
     generated_at = safe_timestamp(clock(), "generated_at")
+    try:
+        _, stored_location, verified = subject_for_projection(
+            paths.root,
+            subject_repo_id=subject_repo_id,
+            subject_head_sha=subject_head_sha,
+            subject_path=subject_path,
+            allow_dirty=allow_dirty,
+        )
+    except SubjectRegistryError as exc:
+        raise OpenClawComposeError(str(exc)) from exc
+    records = projected_nodes(paths)
+    visible_node_ids = {record["id"] for record in records}
+    open_gaps = projected_gaps(paths, visible_node_ids)
+    pending_escalations = projected_escalations(paths)
+    file_index_rows, file_index_truncated = projected_file_index(
+        paths,
+        subject_repo_id=subject_repo_id,
+        subject_head_sha=subject_head_sha,
+    )
     meta = metadata(
         project_id=project_id,
         canonical_rev=canonical_rev,
         subject_repo_id=subject_repo_id,
         subject_head_sha=subject_head_sha,
         subject_state_verified=verified,
+        subject_location_hash=location_hash(stored_location),
         generated_at=generated_at,
+        file_index_count=len(file_index_rows),
+        file_index_truncated=file_index_truncated,
     )
-    records = projected_nodes(paths)
-    visible_node_ids = {record["id"] for record in records}
     pack = {
         **meta,
         "records": records,
-        "open_gaps": projected_gaps(paths, visible_node_ids),
-        "pending_escalations": projected_escalations(paths),
+        "open_gaps": open_gaps,
+        "pending_escalations": pending_escalations,
         "writeback_policy": WRITEBACK_POLICY,
     }
 
     openclaw_dir = safe_openclaw_dir(paths)
     pages_dir = openclaw_dir / "wiki-mirror/pages"
     runtime_json = safe_output(openclaw_dir, "runtime-pack.json")
+    file_index_json = safe_output(openclaw_dir, "file-index.json")
     runtime_md = safe_output(openclaw_dir, "runtime-pack.md")
     memory_prompt = safe_output(openclaw_dir, "memory-prompt.md")
     manifest_json = safe_output(openclaw_dir, "wiki-mirror/manifest.json")
@@ -574,6 +737,7 @@ def write_openclaw_projection(
         "generated_at": generated_at,
         "pages": sorted(page_entries, key=lambda item: item["id"]),
     }
+    atomic_write_text(file_index_json, json.dumps(file_index_rows, indent=2, sort_keys=True) + "\n")
     atomic_write_text(runtime_json, json.dumps(pack, indent=2, sort_keys=True) + "\n")
     atomic_write_text(runtime_md, render_runtime_markdown(pack) + "\n")
     atomic_write_text(memory_prompt, render_memory_prompt(pack) + "\n")

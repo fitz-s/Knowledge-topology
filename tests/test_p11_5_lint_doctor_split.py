@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
+from support_subjects import seed_subject_registry
 from knowledge_topology.ids import new_id
 from knowledge_topology.storage.spool import create_job, lease_next
 from knowledge_topology.workers.compose_builder import write_builder_pack
@@ -19,6 +20,11 @@ from knowledge_topology.workers.compose_openclaw import write_openclaw_projectio
 from knowledge_topology.workers.doctor import doctor_canonical_parity, doctor_projections, doctor_public_safe, doctor_queues
 from knowledge_topology.workers.init import init_topology
 from knowledge_topology.workers.lint import run_repo_lints, run_runtime_lints
+
+
+def init_subject_root(root: Path) -> None:
+    init_topology(root)
+    seed_subject_registry(root)
 
 
 class P11LintDoctorSplitTests(unittest.TestCase):
@@ -40,7 +46,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
     def test_repo_lint_flags_generated_projection_but_runtime_lint_accepts_valid_pack(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_topology(root)
+            init_subject_root(root)
             self.seed_invariant(root)
             write_builder_pack(
                 root,
@@ -58,7 +64,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
     def test_runtime_lint_rejects_malformed_pack_and_symlinked_reltests(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_topology(root)
+            init_subject_root(root)
             pack = root / "projections/tasks/task_bad"
             pack.mkdir(parents=True)
             (pack / "metadata.json").write_text("{}", encoding="utf-8")
@@ -68,7 +74,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_topology(root)
+            init_subject_root(root)
             pack = root / "projections/tasks/task_link"
             pack.mkdir(parents=True)
             for filename in ["metadata.json", "constraints.json", "source-bundle.json", "writeback-targets.json"]:
@@ -83,7 +89,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_topology(root)
+            init_subject_root(root)
             pack = root / "projections/tasks/task_brief"
             pack.mkdir(parents=True)
             for filename in ["metadata.json", "constraints.json", "source-bundle.json", "writeback-targets.json"]:
@@ -98,7 +104,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            init_topology(root)
+            init_subject_root(root)
             outside = Path(tempfile.mkdtemp()) / "projections"
             task_dir = outside / "tasks" / "task_bad"
             task_dir.mkdir(parents=True)
@@ -112,7 +118,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
     def test_doctor_queues_reports_unknowns_symlinks_expired_and_failed_without_mutating(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            init_topology(root)
+            init_subject_root(root)
             (root / "ops/queue/unknown").mkdir()
             (root / "ops/queue/digest/stuck").mkdir()
             (root / "ops/queue/stray.txt").write_text("bad", encoding="utf-8")
@@ -153,7 +159,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            init_topology(root)
+            init_subject_root(root)
             outside = Path(tempfile.mkdtemp()) / "ops"
             outside.mkdir()
             shutil.rmtree(root / "ops")
@@ -165,7 +171,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
     def test_doctor_projections_reports_expected_metadata_and_manifest_safety(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_topology(root)
+            init_subject_root(root)
             write_openclaw_projection(
                 root,
                 project_id="openclaw_project",
@@ -193,7 +199,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            init_topology(root)
+            init_subject_root(root)
             outside = Path(tempfile.mkdtemp()) / "raw"
             packets = outside / "packets"
             packet_dir = packets / new_id("src")
@@ -207,7 +213,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_topology(root)
+            init_subject_root(root)
             write_openclaw_projection(
                 root,
                 project_id="openclaw_project",
@@ -230,7 +236,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
     def test_doctor_canonical_parity_uses_op_mapping(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_topology(root)
+            init_subject_root(root)
             claim_id = new_id("clm")
             (root / "canonical/registry/claims.jsonl").write_text(json.dumps({"claim_id": claim_id, "status": "active"}) + "\n", encoding="utf-8")
             page_dir = root / "canonical/nodes/claim"
@@ -249,7 +255,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_topology(root)
+            init_subject_root(root)
             node_id = new_id("nd")
             (root / "canonical/registry/nodes.jsonl").write_text(json.dumps({"id": node_id, "status": "active"}) + "\n", encoding="utf-8")
             result = doctor_canonical_parity(root)
@@ -259,7 +265,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
     def test_doctor_public_safe_reports_caps_symlinks_and_private_markers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_topology(root)
+            init_subject_root(root)
             source_id = new_id("src")
             packet_dir = root / "raw/packets" / source_id
             packet_dir.mkdir(parents=True)
@@ -301,7 +307,7 @@ class P11LintDoctorSplitTests(unittest.TestCase):
     def test_cli_lint_and_doctor_split_smoke(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_topology(root)
+            init_subject_root(root)
             env = os.environ.copy()
             env["PYTHONPATH"] = str(SRC)
             commands = [

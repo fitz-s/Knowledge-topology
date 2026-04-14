@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
+from support_subjects import seed_subject_registry
 from knowledge_topology.adapters.openclaw_live import OpenClawLiveError
 from knowledge_topology.adapters.openclaw_live import canonical_json
 from knowledge_topology.adapters.openclaw_live import issue_openclaw_live_lease
@@ -29,6 +30,7 @@ FIXED_TIME = "2026-04-14T00:00:00Z"
 class P11OpenClawLiveTests(unittest.TestCase):
     def seed_projection(self, root: Path) -> None:
         init_topology(root)
+        seed_subject_registry(root)
         node = {
             "id": new_id("nd"),
             "type": "decision",

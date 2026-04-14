@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -29,6 +30,11 @@ from knowledge_topology.workers.digest import DigestWorkerError, write_digest_ar
 from knowledge_topology.workers.fetch import FetchError, ingest_source
 from knowledge_topology.workers.init import init_topology
 from knowledge_topology.workers.reconcile import ReconcileError, reconcile_digest
+from knowledge_topology.subjects import SubjectRegistryError, add_subject, refresh_subject, resolve_subject, show_subject, utc_now
+
+
+def json_dumps(payload: dict) -> str:
+    return json.dumps(payload, indent=2, sort_keys=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,6 +88,27 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
     apply_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
     apply_parser.add_argument("--approve-human", action="store_true", help="approve human-gated mutation")
+
+    subject_parser = subparsers.add_parser("subject", help="manage subject registry")
+    subject_subparsers = subject_parser.add_subparsers(dest="subject_command")
+    subject_add = subject_subparsers.add_parser("add", help="add a subject registry entry")
+    subject_add.add_argument("--root", default=".", help="topology root")
+    subject_add.add_argument("--id", required=True, dest="subject_repo_id", help="subject repo id")
+    subject_add.add_argument("--name", required=True, help="subject display name")
+    subject_add.add_argument("--kind", required=True, choices=["git"], help="subject kind")
+    subject_add.add_argument("--location", required=True, help="subject repo location")
+    subject_add.add_argument("--default-branch", required=True, help="default branch")
+    subject_add.add_argument("--visibility", required=True, help="subject visibility token")
+    subject_add.add_argument("--sensitivity", required=True, help="subject sensitivity token")
+    subject_refresh = subject_subparsers.add_parser("refresh", help="refresh subject HEAD")
+    subject_refresh.add_argument("--root", default=".", help="topology root")
+    subject_refresh.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    subject_show = subject_subparsers.add_parser("show", help="show subject record")
+    subject_show.add_argument("--root", default=".", help="topology root")
+    subject_show.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    subject_resolve = subject_subparsers.add_parser("resolve", help="resolve subject location")
+    subject_resolve.add_argument("--root", default=".", help="topology root")
+    subject_resolve.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
 
     compose_parser = subparsers.add_parser("compose", help="compose derived projections")
     compose_subparsers = compose_parser.add_subparsers(dest="compose_command")
@@ -275,6 +302,48 @@ def main(argv: list[str] | None = None) -> int:
             parser.exit(2, f"topology apply: {exc}\n")
         print(f"applied mutation pack: {applied_path}")
         print(f"wrote audit event: {event_path}")
+        return 0
+    if args.command == "subject" and args.subject_command == "add":
+        try:
+            payload = add_subject(
+                Path(args.root).expanduser().resolve(),
+                subject_repo_id=args.subject_repo_id,
+                name=args.name,
+                kind=args.kind,
+                location=args.location,
+                default_branch=args.default_branch,
+                visibility=args.visibility,
+                sensitivity=args.sensitivity,
+                now=utc_now(),
+            )
+        except (SubjectRegistryError, ValueError) as exc:
+            parser.exit(2, f"topology subject add: {exc}\n")
+        print(json_dumps(payload))
+        return 0
+    if args.command == "subject" and args.subject_command == "refresh":
+        try:
+            payload = refresh_subject(
+                Path(args.root).expanduser().resolve(),
+                args.subject_repo_id,
+                now=utc_now(),
+            )
+        except (SubjectRegistryError, ValueError) as exc:
+            parser.exit(2, f"topology subject refresh: {exc}\n")
+        print(json_dumps(payload))
+        return 0
+    if args.command == "subject" and args.subject_command == "show":
+        try:
+            payload = show_subject(Path(args.root).expanduser().resolve(), args.subject_repo_id)
+        except (SubjectRegistryError, ValueError) as exc:
+            parser.exit(2, f"topology subject show: {exc}\n")
+        print(json_dumps(payload))
+        return 0
+    if args.command == "subject" and args.subject_command == "resolve":
+        try:
+            payload = resolve_subject(Path(args.root).expanduser().resolve(), args.subject_repo_id)
+        except (SubjectRegistryError, ValueError) as exc:
+            parser.exit(2, f"topology subject resolve: {exc}\n")
+        print(json_dumps(payload))
         return 0
     if args.command == "compose" and args.compose_command == "builder":
         try:

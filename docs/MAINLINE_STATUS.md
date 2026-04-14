@@ -39,6 +39,7 @@ Top-level shipped commands:
 - `topology digest`
 - `topology reconcile`
 - `topology apply`
+- `topology subject`
 - `topology compose`
 - `topology lint`
 - `topology doctor`
@@ -53,19 +54,22 @@ Shipped compose subcommands:
 Shipped doctor subcommands:
 
 - `topology doctor stale-anchors`
+- `topology doctor queues`
+- `topology doctor public-safe`
+- `topology doctor projections`
+- `topology doctor canonical-parity`
 
-## Deferred Surfaces
-
-The following items are intentionally not shipped in the P0-P9 mainline:
+Shipped subject subcommands:
 
 - `topology subject add`
 - `topology subject refresh`
 - `topology subject show`
 - `topology subject resolve`
-- `topology doctor queues`
-- `topology doctor public-safe`
-- `topology doctor projections`
-- `topology doctor canonical-parity`
+
+## Deferred Surfaces
+
+The following items are intentionally not shipped in the P0-P9 mainline:
+
 - audio/video transcript resolver
 - deep social thread expansion resolver
 - Codex topology MCP registration
@@ -76,13 +80,12 @@ The following items are intentionally not shipped in the P0-P9 mainline:
 - OpenClaw memory-wiki import or live validation
 - OpenClaw QMD live indexing validation
 - OpenClaw natural-language runtime context sanitizer
-- OpenClaw file-ref projection with subject-file index
 
 ## Mainline Boundary
 
 P0-P9 delivered the repo-root canonical substrate, builder-first loop pieces,
 Codex/Claude routing, and a conservative OpenClaw runtime projection.
 
-P0-P9 did not deliver a distributed queue broker, live runtime adapter, rich
-OpenClaw natural-language memory, subject registry command surface, or the full
-doctor suite described as future work in the implementation plan.
+Post-mainline operational closure packages shipped the runtime doctor split,
+subject registry command surface, and the controlled OpenClaw file-index
+projection. Remaining deferred work is limited to the items listed above.

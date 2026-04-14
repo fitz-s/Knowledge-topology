@@ -404,7 +404,7 @@ P11.5 shipped doctor subcommands:
 - `topology doctor projections`: find stale or leaking projections.
 - `topology doctor canonical-parity`: compare node pages and registries.
 
-Deferred subject commands:
+P11.6 shipped subject commands:
 
 - `topology subject add`
 - `topology subject refresh`
@@ -442,10 +442,12 @@ OpenClaw:
   `projections/openclaw/`.
 - P9 runtime records exclude natural-language `summary` / `statement`, `tags`,
   and `file_refs`.
+- P11.6 adds a controlled local-only file index at
+  `projections/openclaw/file-index.json`; runtime-pack metadata may point to it,
+  but runtime records and docs surfaces must not inline its rows.
 - Live OpenClaw adapter/workspace writes, external-write queue leases,
-  memory-wiki/QMD import or live validation, OpenClaw natural-language runtime
-  sanitizer, and OpenClaw file-ref projection with subject-file index are
-  deferred.
+  memory-wiki/QMD import or live validation, and OpenClaw natural-language
+  runtime sanitizer are deferred.
 - Memory-wiki may consume a derived mirror later; it does not own authority.
 
 ## 13. Maintenance Invariants

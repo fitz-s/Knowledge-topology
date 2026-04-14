@@ -38,6 +38,7 @@ Do not track these surfaces:
 - temporary report/cache directories under `ops/reports/`
 - `projections/**` by default
 - `projections/tasks/**`
+- `projections/openclaw/file-index.json`
 - `projections/openclaw/runtime-pack.md`
 - `projections/openclaw/runtime-pack.json`
 - `projections/openclaw/memory-prompt.md`
