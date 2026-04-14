@@ -35,6 +35,29 @@ class RelationshipTestError(ValueError):
     """Raised when a relationship-test file violates the constrained schema."""
 
 
+BUILDER_PACK_FILES = {
+    "metadata.json",
+    "brief.md",
+    "constraints.json",
+    "relationship-tests.yaml",
+    "source-bundle.json",
+    "writeback-targets.json",
+}
+
+
+def has_symlink_parent(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return True
+    current = root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
+
+
 def _parse_scalar(raw: str) -> object:
     value = raw.strip()
     if value == "":
@@ -150,10 +173,13 @@ def lint_projection_leakage(paths: TopologyPaths) -> list[str]:
 def lint_relationship_tests(paths: TopologyPaths) -> list[str]:
     messages: list[str] = []
     reltest_paths = [
-        *paths.resolve("projections/tasks").glob("*/relationship-tests.yaml"),
-        *paths.resolve(".tmp/writeback").glob("*/relationship-tests.yaml"),
+        *(paths.root / "projections/tasks").glob("*/relationship-tests.yaml"),
+        *(paths.root / ".tmp/writeback").glob("*/relationship-tests.yaml"),
     ]
     for reltest_path in reltest_paths:
+        if has_symlink_parent(paths.root, reltest_path):
+            messages.append(f"{reltest_path}: malformed relationship tests: symlinked relationship-test path")
+            continue
         try:
             parse_relationship_tests(reltest_path)
         except RelationshipTestError as exc:
@@ -161,9 +187,90 @@ def lint_relationship_tests(paths: TopologyPaths) -> list[str]:
     return messages
 
 
+def lint_builder_pack_shapes(paths: TopologyPaths) -> list[str]:
+    messages: list[str] = []
+    tasks_root = paths.root / "projections/tasks"
+    if has_symlink_parent(paths.root, tasks_root):
+        return [f"{tasks_root}: builder packs root is symlinked"]
+    for task_dir in tasks_root.glob("*"):
+        if not task_dir.is_dir() or task_dir.is_symlink():
+            messages.append(f"{task_dir}: builder pack path is not a real directory")
+            continue
+        missing = sorted(filename for filename in BUILDER_PACK_FILES if not (task_dir / filename).exists())
+        if missing:
+            messages.append(f"{task_dir}: builder pack missing files: {', '.join(missing)}")
+            continue
+        for filename in BUILDER_PACK_FILES:
+            path = task_dir / filename
+            if has_symlink_parent(paths.root, path):
+                messages.append(f"{path}: builder pack file path is symlinked")
+        for filename in ["metadata.json", "constraints.json", "source-bundle.json", "writeback-targets.json"]:
+            path = task_dir / filename
+            if has_symlink_parent(paths.root, path):
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                messages.append(f"{path}: invalid JSON: {exc}")
+                continue
+            if not isinstance(payload, dict):
+                messages.append(f"{path}: must contain a JSON object")
+        metadata_path = task_dir / "metadata.json"
+        if metadata_path.exists() and not has_symlink_parent(paths.root, metadata_path):
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                metadata = {}
+            for field in ["canonical_rev", "subject_repo_id", "subject_head_sha"]:
+                if field not in metadata:
+                    messages.append(f"{metadata_path}: missing {field}")
+    return messages
+
+
+def lint_openclaw_projection_shape(paths: TopologyPaths) -> list[str]:
+    messages: list[str] = []
+    openclaw = paths.root / "projections/openclaw"
+    if has_symlink_parent(paths.root, openclaw):
+        return [f"{openclaw}: OpenClaw projection root is symlinked"]
+    if not openclaw.exists():
+        return messages
+    required = ["runtime-pack.json", "runtime-pack.md", "memory-prompt.md", "wiki-mirror/manifest.json"]
+    if not any((openclaw / relative).exists() for relative in required):
+        return messages
+    for relative in required:
+        path = openclaw / relative
+        if not path.exists():
+            messages.append(f"{path}: OpenClaw projection file missing")
+            continue
+        if has_symlink_parent(paths.root, path) or not path.is_file():
+            messages.append(f"{path}: OpenClaw projection file is unsafe")
+            continue
+        if path.suffix == ".json":
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                messages.append(f"{path}: invalid JSON: {exc}")
+                continue
+            if not isinstance(payload, dict):
+                messages.append(f"{path}: must contain a JSON object")
+            if relative == "wiki-mirror/manifest.json" and isinstance(payload, dict):
+                for page in payload.get("pages", []):
+                    if not isinstance(page, dict) or not isinstance(page.get("path"), str):
+                        messages.append(f"{path}: OpenClaw manifest page is malformed")
+                        continue
+                    page_path = openclaw / "wiki-mirror" / page["path"]
+                    if ".." in Path(page["path"]).parts or has_symlink_parent(paths.root, page_path) or not page_path.exists():
+                        messages.append(f"{page_path}: OpenClaw wiki page is unsafe")
+    return messages
+
+
 def lint_missing_antibodies(paths: TopologyPaths) -> list[str]:
     messages: list[str] = []
-    for task_dir in paths.resolve("projections/tasks").glob("*"):
+    tasks_root = paths.root / "projections/tasks"
+    if has_symlink_parent(paths.root, tasks_root):
+        messages.append(f"{tasks_root}: builder-critical invariants missing relationship tests")
+        return messages
+    for task_dir in tasks_root.glob("*"):
         if not task_dir.is_dir() or task_dir.is_symlink():
             continue
         constraints = task_dir / "constraints.json"
@@ -223,7 +330,7 @@ def lint_missing_antibodies(paths: TopologyPaths) -> list[str]:
     return messages
 
 
-def run_lints(root: str | Path) -> LintResult:
+def run_repo_lints(root: str | Path) -> LintResult:
     paths = TopologyPaths.from_root(root)
     messages: list[str] = []
     messages.extend(lint_source_packets(paths))
@@ -231,3 +338,17 @@ def run_lints(root: str | Path) -> LintResult:
     messages.extend(lint_relationship_tests(paths))
     messages.extend(lint_missing_antibodies(paths))
     return LintResult(ok=not messages, messages=messages)
+
+
+def run_runtime_lints(root: str | Path) -> LintResult:
+    paths = TopologyPaths.from_root(root)
+    messages: list[str] = []
+    messages.extend(lint_builder_pack_shapes(paths))
+    messages.extend(lint_openclaw_projection_shape(paths))
+    messages.extend(lint_relationship_tests(paths))
+    messages.extend(lint_missing_antibodies(paths))
+    return LintResult(ok=not messages, messages=messages)
+
+
+def run_lints(root: str | Path) -> LintResult:
+    return run_repo_lints(root)

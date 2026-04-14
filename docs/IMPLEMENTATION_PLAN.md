@@ -397,9 +397,9 @@ P0-P9 shipped doctor subcommands:
 
 - `topology doctor stale-anchors`: find file refs whose subject head moved.
 
-Deferred doctor subcommands:
+P11.5 shipped doctor subcommands:
 
-- `topology doctor queues`: expire leases and requeue abandoned jobs.
+- `topology doctor queues`: report queue health without mutating jobs.
 - `topology doctor public-safe`: find tracked unsafe raw content.
 - `topology doctor projections`: find stale or leaking projections.
 - `topology doctor canonical-parity`: compare node pages and registries.

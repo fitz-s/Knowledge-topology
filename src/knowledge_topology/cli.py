@@ -17,8 +17,12 @@ from knowledge_topology.workers.agent_guard import guard_claude_pre_tool_use
 from knowledge_topology.workers.apply import ApplyError, apply_mutation
 from knowledge_topology.workers.compose_builder import ComposeError, write_builder_pack
 from knowledge_topology.workers.compose_openclaw import OpenClawComposeError, write_openclaw_projection
+from knowledge_topology.workers.doctor import doctor_canonical_parity
+from knowledge_topology.workers.doctor import doctor_projections
+from knowledge_topology.workers.doctor import doctor_public_safe
+from knowledge_topology.workers.doctor import doctor_queues
 from knowledge_topology.workers.doctor import stale_anchors
-from knowledge_topology.workers.lint import run_lints
+from knowledge_topology.workers.lint import run_lints, run_repo_lints, run_runtime_lints
 from knowledge_topology.workers.run_digest_queue import DigestQueueRunnerError, run_digest_queue
 from knowledge_topology.workers.writeback import WritebackError, writeback_session
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
@@ -100,6 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     openclaw_parser.add_argument("--allow-dirty", action="store_true", help="allow dirty repos for fixture/test use")
 
     lint_parser = subparsers.add_parser("lint", help="run deterministic topology lints")
+    lint_parser.add_argument("lint_mode", nargs="?", choices=["repo", "runtime"], default="repo", help="lint mode")
     lint_parser.add_argument("--root", default=".", help="topology root")
 
     doctor_parser = subparsers.add_parser("doctor", help="run topology doctor checks")
@@ -108,6 +113,18 @@ def build_parser() -> argparse.ArgumentParser:
     stale_parser.add_argument("--root", default=".", help="topology root")
     stale_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
     stale_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+    queues_parser = doctor_subparsers.add_parser("queues", help="report queue health")
+    queues_parser.add_argument("--root", default=".", help="topology root")
+    projections_parser = doctor_subparsers.add_parser("projections", help="report projection health")
+    projections_parser.add_argument("--root", default=".", help="topology root")
+    projections_parser.add_argument("--project-id")
+    projections_parser.add_argument("--canonical-rev")
+    projections_parser.add_argument("--subject", dest="subject_repo_id")
+    projections_parser.add_argument("--subject-head-sha")
+    canonical_parity_parser = doctor_subparsers.add_parser("canonical-parity", help="report canonical page/registry parity")
+    canonical_parity_parser.add_argument("--root", default=".", help="topology root")
+    public_safe_parser = doctor_subparsers.add_parser("public-safe", help="report public-safe source packet issues")
+    public_safe_parser.add_argument("--root", default=".", help="topology root")
 
     writeback_parser = subparsers.add_parser("writeback", help="create mutation proposal from session summary")
     writeback_parser.add_argument("--root", default=".", help="topology root")
@@ -291,7 +308,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"created OpenClaw projection: {projection_dir}")
         return 0
     if args.command == "lint":
-        result = run_lints(Path(args.root).expanduser().resolve())
+        if args.lint_mode == "runtime":
+            result = run_runtime_lints(Path(args.root).expanduser().resolve())
+        else:
+            result = run_repo_lints(Path(args.root).expanduser().resolve())
         for message in result.messages:
             print(message)
         return 0 if result.ok else 1
@@ -301,6 +321,32 @@ def main(argv: list[str] | None = None) -> int:
             subject_repo_id=args.subject_repo_id,
             subject_head_sha=args.subject_head_sha,
         )
+        for message in result.messages:
+            print(message)
+        return 0 if result.ok else 1
+    if args.command == "doctor" and args.doctor_command == "queues":
+        result = doctor_queues(Path(args.root).expanduser().resolve())
+        for message in result.messages:
+            print(message)
+        return 0 if result.ok else 1
+    if args.command == "doctor" and args.doctor_command == "projections":
+        result = doctor_projections(
+            Path(args.root).expanduser().resolve(),
+            project_id=args.project_id,
+            canonical_rev=args.canonical_rev,
+            subject_repo_id=args.subject_repo_id,
+            subject_head_sha=args.subject_head_sha,
+        )
+        for message in result.messages:
+            print(message)
+        return 0 if result.ok else 1
+    if args.command == "doctor" and args.doctor_command == "canonical-parity":
+        result = doctor_canonical_parity(Path(args.root).expanduser().resolve())
+        for message in result.messages:
+            print(message)
+        return 0 if result.ok else 1
+    if args.command == "doctor" and args.doctor_command == "public-safe":
+        result = doctor_public_safe(Path(args.root).expanduser().resolve())
         for message in result.messages:
             print(message)
         return 0 if result.ok else 1
