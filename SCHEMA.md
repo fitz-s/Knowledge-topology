@@ -233,16 +233,20 @@ Minimum fields:
 - `repo_id`
 - `commit_sha`
 - `path`
-- `path_at_capture`
+
+Optional fields:
+
 - `line_range`
 - `symbol`
 - `anchor_kind`: `symbol`, `line`, or `excerpt`
 - `excerpt_hash`
 - `verified_at`
-- optional `symbol_signature`
 
 File references are stale when the subject repo head moves and the reference is
-not reverified.
+not reverified. Builder packs and writeback summaries use this exact public
+field set; path aliases such as `path_at_capture`, executable instructions,
+private paths, raw/local blob paths, and canonical registry paths are not valid
+builder/runtime file references.
 
 ## Mutation Pack
 
@@ -262,6 +266,53 @@ Minimum fields:
 - `merge_confidence`
 
 Apply rejects mutation packs whose preconditions no longer hold.
+
+Valid `proposal_type` values:
+
+- `digest_reconcile`
+- `session_writeback`
+
+Session writeback packs are proposals from builder or runtime sessions. They
+may propose `decision`, `invariant`, `interface`, `runtime_observation`, and
+`task_lesson` nodes. Conflict-bearing writeback packs set
+`requires_human=true`, `human_gate_class=high_impact_contradiction`, and
+`merge_confidence=low`.
+
+## Writeback Summary
+
+Writeback summaries are local JSON inputs, normally under `.tmp/`, used to
+emit mutation packs and relationship-test deltas. Minimum fields:
+
+- `source_id`
+- `digest_id`
+
+Accepted proposal fields:
+
+- `decisions`: string entries, or objects with `statement` and optional
+  `status`
+- `invariants`: string entries, or objects with `statement` and optional
+  `status`
+- `interfaces`: objects with `name`, `contract`, and optional `file_refs`
+- `runtime_assumptions`: objects with `statement` and `observed_in`
+- `task_lessons`: string entries, or objects with `lesson` and `applies_to`
+- `tests_run`: objects with `command`, `result`, and optional `notes`
+- `commands_run`: objects with `command`, `exit_code`, and optional `notes`
+- `file_refs`: public file-reference objects attached to pack metadata
+- `conflicts`: objects with `summary`, `expected`, `observed`, `severity`,
+  and `refs`
+
+At least one proposal-bearing field must be populated: `decisions`,
+`invariants`, `interfaces`, `runtime_assumptions`, `task_lessons`,
+`tests_run`, `commands_run`, or `conflicts`. Top-level `file_refs` alone do
+not create a mutation proposal. All summary file references must match the
+writeback preconditions: `repo_id == subject_repo_id` and
+`commit_sha == subject_head_sha`.
+
+`runtime_assumptions` emit `runtime_observation` proposals with
+`authority=runtime_observed`, `scope=runtime`, `sensitivity=runtime_only`, and
+OpenClaw audience. `tests_run` and `commands_run` stay in mutation metadata;
+they synthesize `task_lesson` proposals only when no explicit `task_lessons`
+were supplied.
 
 ## Audit Event
 
@@ -374,3 +425,16 @@ Fixed outputs:
 
 A builder pack is stale when `canonical_rev` or `subject_head_sha` no longer
 matches the current context.
+
+`brief.md` is a construction brief, not a count summary. It includes the task
+goal, revision preconditions, key decisions, invariants, interfaces,
+contradiction pressure, open gaps, and a writeback reminder.
+
+`constraints.json` includes:
+
+- `invariants`
+- `interfaces`
+- `file_refs`
+- `contradiction_pressure`
+- legacy integer `count`
+- structured `counts`

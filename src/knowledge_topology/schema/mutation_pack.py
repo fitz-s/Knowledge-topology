@@ -8,7 +8,7 @@ from typing import Any
 from knowledge_topology.ids import is_valid_id
 
 
-PROPOSAL_TYPES = {"digest_reconcile"}
+PROPOSAL_TYPES = {"digest_reconcile", "session_writeback"}
 MERGE_CONFIDENCE = {"high", "medium", "low"}
 HUMAN_GATE_CLASSES = {
     "source_ambiguity",
