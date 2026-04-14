@@ -523,6 +523,7 @@ class P11DigestRunnerTests(unittest.TestCase):
             text = prompt.read_text(encoding="utf-8")
             self.assertIn("Never write canonical state", text)
             self.assertIn("Emit one JSON object only", text)
+            self.assertIn("video_platform", text)
 
 
 if __name__ == "__main__":

@@ -394,6 +394,50 @@ class P11FetchV2Tests(unittest.TestCase):
             self.assertLessEqual(len(tracked.strip()), EXTERNAL_PUBLIC_TEXT_LIMIT)
             self.assertIn("spoken words", tracked)
 
+    def test_video_digest_request_includes_attached_deep_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_with_prompts(root)
+            result = ingest(root, "https://v.douyin.com/6l8q1jGwRl4/", depth="deep")
+            source_id = json.loads(result.packet_path.read_text(encoding="utf-8"))["id"]
+            transcript = root / "transcript.txt"
+            transcript.write_text(
+                "主题是统计学里反直觉、颠覆直觉的定理。"
+                "开头反驳只看期望值做决策，乘法型风险下满仓赌局长期走向归零。"
+                "章节包括维度诅咒、James-Stein 估计、反正弦定律、遍历性破缺、尾部风险与极值理论。",
+                encoding="utf-8",
+            )
+            key_frames = root / "key_frames.txt"
+            key_frames.write_text(
+                "关键帧：均值陷阱；高维距离集中；随机游走停留在极端；尾部事件主导风险。",
+                encoding="utf-8",
+            )
+            audio = root / "audio_summary.txt"
+            audio.write_text("总结观点：直觉、均值和长期必然赚钱这类说法很危险。", encoding="utf-8")
+            for kind, path in [
+                ("transcript", transcript),
+                ("key_frames", key_frames),
+                ("audio_summary", audio),
+            ]:
+                attach_video_artifact(
+                    root,
+                    source_id=source_id,
+                    artifact_kind=kind,
+                    artifact_path=path,
+                    track_text=True,
+                )
+            request = build_digest_model_request(root, source_id)
+            serialized = json.dumps(request.to_dict(), ensure_ascii=False, sort_keys=True)
+            self.assertEqual(request.source_text_kind, "video_artifacts")
+            self.assertIn("## transcript", request.source_text or "")
+            self.assertIn("James-Stein", serialized)
+            self.assertIn("反正弦定律", serialized)
+            self.assertIn("遍历性破缺", serialized)
+            self.assertIn("尾部风险", serialized)
+            self.assertIn("opening misconception", request.prompt)
+            self.assertIn("chapter or segment structure", request.prompt)
+            self.assertIn("intuition-breaking mechanism", request.prompt)
+
     def test_video_artifact_attachment_rejects_non_video_packets_and_symlinks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
