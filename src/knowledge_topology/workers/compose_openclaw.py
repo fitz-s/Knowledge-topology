@@ -563,6 +563,7 @@ def write_openclaw_projection(
         atomic_write_text(page_output, wiki_page(record, meta) + "\n")
     manifest = {
         "schema_version": "1.0",
+        "project_id": project_id,
         "owner": "knowledge-topology",
         "authority": "derived",
         "write_policy": "read_only",

@@ -13,6 +13,13 @@ Derived systems such as vector stores, graph databases, QMD, OpenClaw
 memory-wiki mirrors, task projections, and runtime packs are accelerators or
 views. They do not own truth.
 
+QMD scope for OpenClaw runtime use is limited to
+`projections/openclaw/wiki-mirror/`, `projections/openclaw/runtime-pack.json`,
+`projections/openclaw/runtime-pack.md`, and
+`projections/openclaw/memory-prompt.md`. QMD must not index `raw/`, `digests/`,
+`canonical/`, `canonical/registry/`, `mutations/`, `ops/`, or private OpenClaw
+workspace/session/config paths.
+
 ## Write Gates
 
 Only the apply worker may write non-fixture files under `canonical/` and
@@ -20,6 +27,11 @@ Only the apply worker may write non-fixture files under `canonical/` and
 
 Builder agents, Claude sessions, Codex sessions, and OpenClaw runtime agents
 must propose canonical changes through mutation packs.
+
+OpenClaw live bridge writes require topology-issued writeback leases and
+sanitized summaries staged inside the topology root. OpenClaw may not directly
+write `canonical/`, `canonical/registry/`, `digests/`, generated
+`projections/openclaw/`, or adapter-private `.tmp/openclaw-live/` issuer state.
 
 Apply must reject a mutation pack when any precondition fails:
 

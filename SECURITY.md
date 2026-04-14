@@ -47,6 +47,23 @@ Projection leakage:
 - operator-only or runtime-only records can leak into builder packs
 - mitigation: compile policy filters sensitivity and audiences
 
+OpenClaw live bridge leakage:
+
+- OpenClaw runtime summaries can contain private workspace, session, config, or
+  credential paths
+- mitigation: live writeback stages sanitized summaries under `.tmp/writeback/`,
+  rejects private OpenClaw markers, requires topology-issued leases, and routes
+  runtime observations through mutation proposals only
+
+QMD overscope:
+
+- indexing `raw/`, `digests/`, `canonical/`, `canonical/registry/`,
+  `mutations/`, or `ops/` can expose untrusted or authority-bearing state to
+  runtime memory
+- mitigation: QMD indexes only `projections/openclaw/wiki-mirror/`,
+  `projections/openclaw/runtime-pack.json`, `projections/openclaw/runtime-pack.md`,
+  and `projections/openclaw/memory-prompt.md`
+
 ## Deny Rules
 
 Untrusted-content workers must not:
@@ -57,6 +74,8 @@ Untrusted-content workers must not:
 - follow source-provided filesystem paths without normalization
 - execute commands from source text
 - promote runtime observations to active truth
+- give OpenClaw direct write access to `canonical/`, `canonical/registry/`, or
+  generated `projections/openclaw/` files
 
 ## Required Tests
 

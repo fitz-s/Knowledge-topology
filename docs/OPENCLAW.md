@@ -60,3 +60,27 @@ Allowed writeback surfaces are limited to source packets, pending mutation
 packs, local writeback deltas, local queue surfaces, semantic events, gaps, and
 escalations. OpenClaw must not write `canonical/`, `canonical/registry/`,
 `digests/`, generated `projections/openclaw/` files, or `.openclaw-wiki/`.
+
+## Live Bridge
+
+The OpenClaw live bridge is topology-side code. External OpenClaw runtimes do
+not write directly into `ops/queue/writeback/leased/` or adapter-private
+`.tmp/openclaw-live/` issuer state. A live writeback requires a topology-issued
+lease, fresh projection metadata, evidence bound to the runtime summary, and a
+sanitized summary staged under `.tmp/writeback/<job_id>/summary.json`.
+
+The bridge routes runtime observations through `writeback.py`; it does not
+construct canonical records by hand and does not grant canonical write
+authority.
+
+## QMD Scope
+
+QMD may index only:
+
+- `projections/openclaw/wiki-mirror/`
+- `projections/openclaw/runtime-pack.json`
+- `projections/openclaw/runtime-pack.md`
+- `projections/openclaw/memory-prompt.md`
+
+QMD must not index `raw/`, `digests/`, `canonical/`, `canonical/registry/`,
+`mutations/`, `ops/`, or private OpenClaw workspace/session/config paths.

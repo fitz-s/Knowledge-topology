@@ -356,6 +356,7 @@ def writeback_session(
     base_canonical_rev: str,
     current_canonical_rev: str,
     current_subject_head_sha: str,
+    metadata_extra: dict[str, Any] | None = None,
 ) -> tuple[Path, Path]:
     for field, value in {
         "subject_repo_id": subject_repo_id,
@@ -492,6 +493,14 @@ def writeback_session(
             "runtime_assumptions, task_lessons, tests_run, commands_run, conflicts"
         )
     has_conflict = bool(summary["conflicts"])
+    metadata = {
+        "writeback_summary": str(summary_path),
+        "file_refs": summary["file_refs"],
+        "tests_run": summary["tests_run"],
+        "commands_run": summary["commands_run"],
+    }
+    if metadata_extra is not None:
+        metadata.update(metadata_extra)
     pack = MutationPack(
         schema_version="1.0",
         id=new_id("mut"),
@@ -505,12 +514,7 @@ def writeback_session(
         requires_human=has_conflict,
         human_gate_class="high_impact_contradiction" if has_conflict else None,
         merge_confidence="low" if has_conflict else "medium",
-        metadata={
-            "writeback_summary": str(summary_path),
-            "file_refs": summary["file_refs"],
-            "tests_run": summary["tests_run"],
-            "commands_run": summary["commands_run"],
-        },
+        metadata=metadata,
     )
     mutation_path = paths.resolve(f"mutations/pending/{pack.id}.json")
     atomic_write_text(mutation_path, json.dumps(pack.to_dict(), indent=2, sort_keys=True) + "\n")
