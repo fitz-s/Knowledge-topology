@@ -76,7 +76,7 @@ class P10MainlineClosureTests(unittest.TestCase):
     def test_cli_reality_matches_status(self):
         plan = read("docs/IMPLEMENTATION_PLAN.md")
         top_help = cli("--help")
-        for command in ["init", "ingest", "digest", "reconcile", "apply", "subject", "compose", "lint", "doctor", "writeback", "agent-guard"]:
+        for command in ["init", "ingest", "digest", "reconcile", "apply", "subject", "compose", "lint", "doctor", "writeback", "agent-guard", "openclaw"]:
             self.assertIn(command, top_help)
             self.assertIn(f"topology {command}", plan)
 
@@ -87,6 +87,10 @@ class P10MainlineClosureTests(unittest.TestCase):
         subject_help = cli("subject", "--help")
         for shipped in ["add", "refresh", "show", "resolve"]:
             self.assertIn(shipped, subject_help)
+
+        openclaw_help = cli("openclaw", "--help")
+        for shipped in ["capture-source", "issue-lease", "lease", "run-writeback"]:
+            self.assertIn(shipped, openclaw_help)
 
         doctor_help = cli("doctor", "--help")
         self.assertIn("stale-anchors", doctor_help)

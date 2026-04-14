@@ -14,6 +14,11 @@ from knowledge_topology.schema.mutation_pack import MutationPackError
 from knowledge_topology.adapters.digest_model import CommandDigestProviderAdapter
 from knowledge_topology.adapters.digest_model import DigestProviderError
 from knowledge_topology.adapters.digest_model import JsonDirectoryDigestProviderAdapter
+from knowledge_topology.adapters.openclaw_live import OpenClawLiveError
+from knowledge_topology.adapters.openclaw_live import create_runtime_source_packet
+from knowledge_topology.adapters.openclaw_live import issue_openclaw_live_lease
+from knowledge_topology.adapters.openclaw_live import lease_openclaw_live_job
+from knowledge_topology.adapters.openclaw_live import run_openclaw_live_writeback
 from knowledge_topology.workers.agent_guard import guard_claude_pre_tool_use
 from knowledge_topology.workers.apply import ApplyError, apply_mutation
 from knowledge_topology.workers.compose_builder import ComposeError, write_builder_pack
@@ -35,6 +40,18 @@ from knowledge_topology.subjects import SubjectRegistryError, add_subject, refre
 
 def json_dumps(payload: dict) -> str:
     return json.dumps(payload, indent=2, sort_keys=True)
+
+
+def load_json_object(path: str | Path, label: str) -> dict:
+    try:
+        payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"{label} cannot be read: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} JSON is invalid: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} must be a JSON object")
+    return payload
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -152,6 +169,39 @@ def build_parser() -> argparse.ArgumentParser:
     canonical_parity_parser.add_argument("--root", default=".", help="topology root")
     public_safe_parser = doctor_subparsers.add_parser("public-safe", help="report public-safe source packet issues")
     public_safe_parser.add_argument("--root", default=".", help="topology root")
+
+    openclaw_parser = subparsers.add_parser("openclaw", help="run OpenClaw live bridge operations")
+    openclaw_subparsers = openclaw_parser.add_subparsers(dest="openclaw_command")
+    openclaw_capture = openclaw_subparsers.add_parser("capture-source", help="capture runtime summary as source evidence")
+    openclaw_capture.add_argument("--root", default=".", help="topology root")
+    openclaw_capture.add_argument("--project-id", required=True, help="OpenClaw runtime project id")
+    openclaw_capture.add_argument("--canonical-rev", required=True, help="canonical revision")
+    openclaw_capture.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    openclaw_capture.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+    openclaw_capture.add_argument("--runtime-summary-json", required=True, help="runtime summary JSON object")
+
+    openclaw_issue = openclaw_subparsers.add_parser("issue-lease", help="issue an OpenClaw live writeback lease")
+    openclaw_issue.add_argument("--root", default=".", help="topology root")
+    openclaw_issue.add_argument("--project-id", required=True, help="OpenClaw runtime project id")
+    openclaw_issue.add_argument("--canonical-rev", required=True, help="canonical revision")
+    openclaw_issue.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    openclaw_issue.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+    openclaw_issue.add_argument("--runtime-summary-json", required=True, help="runtime summary JSON object")
+    openclaw_issue.add_argument("--created-by", default="openclaw-live-issuer", help="lease issuer label")
+
+    openclaw_lease = openclaw_subparsers.add_parser("lease", help="lease the next OpenClaw live writeback job")
+    openclaw_lease.add_argument("--root", default=".", help="topology root")
+    openclaw_lease.add_argument("--owner", required=True, help="lease owner")
+    openclaw_lease.add_argument("--lease-seconds", type=int, default=900, help="lease duration")
+
+    openclaw_run = openclaw_subparsers.add_parser("run-writeback", help="consume an OpenClaw live writeback lease")
+    openclaw_run.add_argument("--root", default=".", help="topology root")
+    openclaw_run.add_argument("--project-id", required=True, help="OpenClaw runtime project id")
+    openclaw_run.add_argument("--canonical-rev", required=True, help="canonical revision")
+    openclaw_run.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    openclaw_run.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+    openclaw_run.add_argument("--lease-path", required=True, help="leased writeback job path")
+    openclaw_run.add_argument("--runtime-summary-json", required=True, help="runtime summary JSON object")
 
     writeback_parser = subparsers.add_parser("writeback", help="create mutation proposal from session summary")
     writeback_parser.add_argument("--root", default=".", help="topology root")
@@ -419,6 +469,65 @@ def main(argv: list[str] | None = None) -> int:
         for message in result.messages:
             print(message)
         return 0 if result.ok else 1
+    if args.command == "openclaw" and args.openclaw_command == "capture-source":
+        try:
+            packet_path = create_runtime_source_packet(
+                Path(args.root).expanduser().resolve(),
+                project_id=args.project_id,
+                canonical_rev=args.canonical_rev,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+                runtime_summary=load_json_object(args.runtime_summary_json, "runtime summary"),
+            )
+        except (OpenClawLiveError, ValueError) as exc:
+            parser.exit(2, f"topology openclaw capture-source: {exc}\n")
+        print(f"created OpenClaw runtime source packet: {packet_path}")
+        return 0
+    if args.command == "openclaw" and args.openclaw_command == "issue-lease":
+        try:
+            lease_path = issue_openclaw_live_lease(
+                Path(args.root).expanduser().resolve(),
+                project_id=args.project_id,
+                canonical_rev=args.canonical_rev,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+                runtime_summary=load_json_object(args.runtime_summary_json, "runtime summary"),
+                created_by=args.created_by,
+            )
+        except (OpenClawLiveError, ValueError) as exc:
+            parser.exit(2, f"topology openclaw issue-lease: {exc}\n")
+        print(f"issued OpenClaw live lease: {lease_path}")
+        return 0
+    if args.command == "openclaw" and args.openclaw_command == "lease":
+        try:
+            lease_path = lease_openclaw_live_job(
+                Path(args.root).expanduser().resolve(),
+                owner=args.owner,
+                lease_seconds=args.lease_seconds,
+            )
+        except (OpenClawLiveError, ValueError) as exc:
+            parser.exit(2, f"topology openclaw lease: {exc}\n")
+        print(f"leased OpenClaw live job: {lease_path}")
+        return 0
+    if args.command == "openclaw" and args.openclaw_command == "run-writeback":
+        try:
+            result = run_openclaw_live_writeback(
+                Path(args.root).expanduser().resolve(),
+                project_id=args.project_id,
+                canonical_rev=args.canonical_rev,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+                lease_path=args.lease_path,
+                runtime_summary_path=args.runtime_summary_json,
+            )
+        except (OpenClawLiveError, ValueError) as exc:
+            parser.exit(2, f"topology openclaw run-writeback: {exc}\n")
+        if result.mutation_path is not None:
+            print(f"created OpenClaw writeback mutation pack: {result.mutation_path}")
+        if result.relationship_tests_path is not None:
+            print(f"created OpenClaw relationship-test delta: {result.relationship_tests_path}")
+        print(f"consumed OpenClaw live lease: {result.lease_path}")
+        return 0
     if args.command == "writeback":
         try:
             mutation_path, reltest_path = writeback_session(

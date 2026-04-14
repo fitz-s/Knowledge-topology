@@ -392,6 +392,7 @@ P0-P9 shipped CLI commands:
 - `topology lint`
 - `topology doctor`
 - `topology agent-guard`
+- `topology openclaw`
 
 P0-P9 shipped doctor subcommands:
 
@@ -410,6 +411,14 @@ P11.6 shipped subject commands:
 - `topology subject refresh`
 - `topology subject show`
 - `topology subject resolve`
+
+OpenClaw bridge commands:
+
+- `topology openclaw capture-source`: capture runtime summary evidence.
+- `topology openclaw issue-lease`: issue a topology-owned live writeback lease.
+- `topology openclaw lease`: lease the next OpenClaw writeback job.
+- `topology openclaw run-writeback`: validate evidence and emit writeback
+  proposals through the live bridge.
 
 Adapters may call the CLI or library, but must not implement separate business
 rules.

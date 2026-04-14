@@ -45,6 +45,7 @@ Top-level shipped commands:
 - `topology doctor`
 - `topology writeback`
 - `topology agent-guard`
+- `topology openclaw`
 
 Shipped compose subcommands:
 
@@ -65,6 +66,13 @@ Shipped subject subcommands:
 - `topology subject refresh`
 - `topology subject show`
 - `topology subject resolve`
+
+Shipped OpenClaw bridge subcommands:
+
+- `topology openclaw capture-source`
+- `topology openclaw issue-lease`
+- `topology openclaw lease`
+- `topology openclaw run-writeback`
 
 ## Deferred Surfaces
 

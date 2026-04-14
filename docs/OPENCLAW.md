@@ -74,6 +74,73 @@ The bridge routes runtime observations through `writeback.py`; it does not
 construct canonical records by hand and does not grant canonical write
 authority.
 
+## Agent Wiring
+
+OpenClaw agents should use the CLI bridge rather than importing topology Python
+modules directly.
+
+Read path:
+
+```bash
+topology compose openclaw \
+  --root "$KNOWLEDGE_TOPOLOGY_ROOT" \
+  --project-id "$OPENCLAW_PROJECT_ID" \
+  --canonical-rev "$TOPOLOGY_HEAD_SHA" \
+  --subject "$SUBJECT_REPO_ID" \
+  --subject-head-sha "$SUBJECT_HEAD_SHA"
+
+topology lint runtime --root "$KNOWLEDGE_TOPOLOGY_ROOT"
+topology doctor projections \
+  --root "$KNOWLEDGE_TOPOLOGY_ROOT" \
+  --project-id "$OPENCLAW_PROJECT_ID" \
+  --canonical-rev "$TOPOLOGY_HEAD_SHA" \
+  --subject "$SUBJECT_REPO_ID" \
+  --subject-head-sha "$SUBJECT_HEAD_SHA"
+```
+
+OpenClaw then reads only the QMD/read-scope projection files listed below.
+
+Runtime evidence capture:
+
+```bash
+topology openclaw capture-source \
+  --root "$KNOWLEDGE_TOPOLOGY_ROOT" \
+  --project-id "$OPENCLAW_PROJECT_ID" \
+  --canonical-rev "$TOPOLOGY_HEAD_SHA" \
+  --subject "$SUBJECT_REPO_ID" \
+  --subject-head-sha "$SUBJECT_HEAD_SHA" \
+  --runtime-summary-json "$SUMMARY_JSON"
+```
+
+Writeback lease path:
+
+```bash
+topology openclaw issue-lease \
+  --root "$KNOWLEDGE_TOPOLOGY_ROOT" \
+  --project-id "$OPENCLAW_PROJECT_ID" \
+  --canonical-rev "$TOPOLOGY_HEAD_SHA" \
+  --subject "$SUBJECT_REPO_ID" \
+  --subject-head-sha "$SUBJECT_HEAD_SHA" \
+  --runtime-summary-json "$SUMMARY_JSON"
+
+topology openclaw lease \
+  --root "$KNOWLEDGE_TOPOLOGY_ROOT" \
+  --owner "$OPENCLAW_AGENT_ID"
+
+topology openclaw run-writeback \
+  --root "$KNOWLEDGE_TOPOLOGY_ROOT" \
+  --project-id "$OPENCLAW_PROJECT_ID" \
+  --canonical-rev "$TOPOLOGY_HEAD_SHA" \
+  --subject "$SUBJECT_REPO_ID" \
+  --subject-head-sha "$SUBJECT_HEAD_SHA" \
+  --lease-path "$LEASE_PATH" \
+  --runtime-summary-json "$SUMMARY_JSON"
+```
+
+The summary JSON must be a JSON object and must not include private OpenClaw
+paths, tokens, session identifiers, credentials, cache paths, or absolute
+private filesystem locations.
+
 ## QMD Scope
 
 QMD may index only:
