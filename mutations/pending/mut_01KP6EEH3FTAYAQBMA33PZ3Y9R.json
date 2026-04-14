@@ -1,0 +1,100 @@
+{
+  "base_canonical_rev": "61fc67c64c4cafe12a38b77528aa1350ae0542dd",
+  "changes": [
+    {
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP6EDNQWVTPBGNYWCT6T2G8P",
+      "node_id": "nd_01KP6EEH3FGFKN7S7YV2QMVGWW",
+      "op": "propose_node",
+      "reason": "OpenClaw runtime integration uses topology openclaw CLI subcommands as the stable agent-facing bridge rather than direct Python imports.",
+      "source_id": "src_01KP6EDNQWMZBXHNV34ZXTEQZ3",
+      "status": "draft",
+      "type": "decision"
+    },
+    {
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP6EDNQWVTPBGNYWCT6T2G8P",
+      "file_refs": [],
+      "name": "topology openclaw CLI bridge",
+      "node_id": "nd_01KP6EEH3F6AQG1QWBTG9B2EZZ",
+      "op": "propose_node",
+      "reason": "OpenClaw agents call capture-source, issue-lease, lease, and run-writeback to exchange runtime evidence and writeback proposals through topology-owned gates.",
+      "source_id": "src_01KP6EDNQWMZBXHNV34ZXTEQZ3",
+      "status": "draft",
+      "type": "interface"
+    },
+    {
+      "audiences": [
+        "openclaw"
+      ],
+      "authority": "runtime_observed",
+      "digest_id": "dg_01KP6EDNQWVTPBGNYWCT6T2G8P",
+      "node_id": "nd_01KP6EEH3FVCM6F6QB6P5E92C3",
+      "observed_in": "P11.7 OpenClaw wiring",
+      "op": "propose_node",
+      "reason": "OpenClaw can read generated projection surfaces and invoke local topology CLI commands, but it must not write canonical or projection files directly.",
+      "scope": "runtime",
+      "sensitivity": "runtime_only",
+      "source_id": "src_01KP6EDNQWMZBXHNV34ZXTEQZ3",
+      "status": "draft",
+      "type": "runtime_observation"
+    },
+    {
+      "applies_to": "future runtime agent integrations",
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP6EDNQWVTPBGNYWCT6T2G8P",
+      "node_id": "nd_01KP6EEH3F13Y67HET97YBGHQK",
+      "op": "propose_node",
+      "reason": "Expose runtime bridges through CLI facades so external agents do not depend on internal Python module paths or private issuer state.",
+      "source_id": "src_01KP6EDNQWMZBXHNV34ZXTEQZ3",
+      "status": "draft",
+      "type": "task_lesson"
+    }
+  ],
+  "evidence_refs": [
+    "dg_01KP6EDNQWVTPBGNYWCT6T2G8P",
+    "src_01KP6EDNQWMZBXHNV34ZXTEQZ3"
+  ],
+  "human_gate_class": null,
+  "id": "mut_01KP6EEH3FTAYAQBMA33PZ3Y9R",
+  "merge_confidence": "medium",
+  "metadata": {
+    "commands_run": [
+      {
+        "command": "git commit -F -",
+        "exit_code": 0,
+        "notes": "committed OpenClaw CLI wiring"
+      }
+    ],
+    "file_refs": [],
+    "tests_run": [
+      {
+        "command": "PYTHONPATH=src python -m pytest tests/test_p11_7_openclaw_wiring.py tests/test_p11_4_openclaw_live.py tests/test_p10_mainline_closure.py -q",
+        "notes": "OpenClaw CLI wiring focused suite",
+        "result": "passed"
+      },
+      {
+        "command": "PYTHONPATH=src python -m pytest -q",
+        "notes": "full repository suite",
+        "result": "passed"
+      },
+      {
+        "command": "PYTHONPATH=src python -m compileall -q src tests",
+        "notes": "syntax check",
+        "result": "passed"
+      },
+      {
+        "command": "git diff --check",
+        "notes": "whitespace check",
+        "result": "passed"
+      }
+    ],
+    "writeback_summary": ".tmp/p11_7_openclaw_wiring_writeback.json"
+  },
+  "proposal_type": "session_writeback",
+  "proposed_by": "writeback",
+  "requires_human": false,
+  "schema_version": "1.0",
+  "subject_head_sha": "61fc67c64c4cafe12a38b77528aa1350ae0542dd",
+  "subject_repo_id": "repo_knowledge_topology"
+}
