@@ -28,4 +28,5 @@ Required fidelity flags:
 - `hidden_assumptions_extracted`
 - `evidence_strength_graded`
 
-Never write canonical state. Emit digest JSON only.
+Never write canonical state. Emit one JSON object only, with no Markdown fence,
+commentary, or extra text outside the JSON.

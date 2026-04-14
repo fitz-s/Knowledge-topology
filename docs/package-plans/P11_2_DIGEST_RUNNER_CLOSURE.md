@@ -142,10 +142,14 @@ Runner behavior:
 6. Load and validate the source packet.
 7. Render the prompt request from `prompts/digest_deep.md` or
    `prompts/digest_standard.md`; `scan` uses the standard prompt.
-8. Call the provider adapter.
-9. Feed the returned raw JSON into `write_digest_artifacts()`.
-10. Move the leased job to `done` on success.
-11. If any step fails, annotate the leased job with a bounded `last_error` and
+8. If any digest JSON artifact already exists under
+   `digests/by_source/<source_id>/`, fail the job before provider invocation.
+   Queue runner mode is one-digest-per-source-id for idempotency; explicit
+   redigest/rebuild policy is deferred.
+9. Call the provider adapter.
+10. Feed the returned raw JSON into `write_digest_artifacts()`.
+11. Move the leased job to `done` on success.
+12. If any step fails, annotate the leased job with a bounded `last_error` and
    move it to `failed`.
 
 Runner output:
@@ -261,8 +265,8 @@ Required tests:
   `last_error`, and writes no digest artifact.
 - Nonzero provider exit, timeout, oversized output, and stderr-heavy failures
   move the job to `failed` with bounded `last_error`.
-- Duplicate digest output failure moves job to `failed` without overwriting the
-  existing artifact.
+- Existing digest artifacts for the same `source_id` fail the job before
+  provider invocation and without overwriting the existing artifact.
 - Expired leased jobs are requeued when attempts remain and failed when
   attempts are exhausted.
 - Stale `base_canonical_rev`, wrong `subject_repo_id`, or stale

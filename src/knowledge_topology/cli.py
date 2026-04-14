@@ -10,12 +10,16 @@ from knowledge_topology.schema.source_packet import SourcePacketError
 from knowledge_topology.adapters.digest_model import JsonFileDigestAdapter
 from knowledge_topology.schema.digest import DigestError
 from knowledge_topology.schema.mutation_pack import MutationPackError
+from knowledge_topology.adapters.digest_model import CommandDigestProviderAdapter
+from knowledge_topology.adapters.digest_model import DigestProviderError
+from knowledge_topology.adapters.digest_model import JsonDirectoryDigestProviderAdapter
 from knowledge_topology.workers.agent_guard import guard_claude_pre_tool_use
 from knowledge_topology.workers.apply import ApplyError, apply_mutation
 from knowledge_topology.workers.compose_builder import ComposeError, write_builder_pack
 from knowledge_topology.workers.compose_openclaw import OpenClawComposeError, write_openclaw_projection
 from knowledge_topology.workers.doctor import stale_anchors
 from knowledge_topology.workers.lint import run_lints
+from knowledge_topology.workers.run_digest_queue import DigestQueueRunnerError, run_digest_queue
 from knowledge_topology.workers.writeback import WritebackError, writeback_session
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
 from knowledge_topology.workers.fetch import FetchError, ingest_source
@@ -45,8 +49,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     digest_parser = subparsers.add_parser("digest", help="validate and write digest artifacts")
     digest_parser.add_argument("--root", default=".", help="topology root")
-    digest_parser.add_argument("--source-id", required=True, help="source packet ID")
-    digest_parser.add_argument("--model-output", required=True, help="path to model-produced digest JSON")
+    digest_parser.add_argument("--source-id", help="source packet ID")
+    digest_parser.add_argument("--model-output", help="path to model-produced digest JSON")
+    digest_parser.add_argument("--run-queue", action="store_true", help="run pending digest queue jobs")
+    digest_parser.add_argument("--owner", help="queue lease owner")
+    digest_parser.add_argument("--subject", dest="subject_repo_id", help="current subject repo id for queue mode")
+    digest_parser.add_argument("--current-canonical-rev", help="current canonical revision for queue mode")
+    digest_parser.add_argument("--current-subject-head-sha", help="current subject HEAD SHA for queue mode")
+    digest_parser.add_argument("--provider-command", help="local provider command for queue mode")
+    digest_parser.add_argument("--model-output-dir", help="directory containing <source_id>.json fixture outputs")
+    digest_parser.add_argument("--provider-timeout-seconds", type=int, default=120, help="provider command timeout")
+    digest_parser.add_argument("--max-jobs", type=int, default=1, help="maximum digest jobs to run")
+    digest_parser.add_argument("--lease-seconds", type=int, default=900, help="digest job lease duration")
+    digest_parser.add_argument("--max-attempts", type=int, default=3, help="maximum attempts before expired jobs fail")
 
     reconcile_parser = subparsers.add_parser("reconcile", help="create a mutation proposal from digest JSON")
     reconcile_parser.add_argument("--root", default=".", help="topology root")
@@ -140,9 +155,73 @@ def main(argv: list[str] | None = None) -> int:
         print(f"enqueued digest job: {result.digest_job_path}")
         return 0
     if args.command == "digest":
+        root = Path(args.root).expanduser().resolve()
+        if args.run_queue:
+            if args.source_id or args.model_output:
+                parser.exit(2, "topology digest: --run-queue cannot be combined with --source-id or --model-output\n")
+            missing = [
+                name
+                for name, value in {
+                    "--owner": args.owner,
+                    "--subject": args.subject_repo_id,
+                    "--current-canonical-rev": args.current_canonical_rev,
+                    "--current-subject-head-sha": args.current_subject_head_sha,
+                }.items()
+                if not value
+            ]
+            if missing:
+                parser.exit(2, f"topology digest: queue mode missing required args: {', '.join(missing)}\n")
+            if bool(args.provider_command) == bool(args.model_output_dir):
+                parser.exit(2, "topology digest: queue mode requires exactly one of --provider-command or --model-output-dir\n")
+            try:
+                if args.provider_command:
+                    provider = CommandDigestProviderAdapter(
+                        args.provider_command,
+                        cwd=root,
+                        timeout_seconds=args.provider_timeout_seconds,
+                    )
+                else:
+                    provider = JsonDirectoryDigestProviderAdapter(args.model_output_dir, root=root)
+                result = run_digest_queue(
+                    root,
+                    provider_adapter=provider,
+                    owner=args.owner,
+                    current_subject_repo_id=args.subject_repo_id,
+                    current_subject_head_sha=args.current_subject_head_sha,
+                    current_canonical_rev=args.current_canonical_rev,
+                    max_jobs=args.max_jobs,
+                    lease_seconds=args.lease_seconds,
+                    max_attempts=args.max_attempts,
+                )
+            except (DigestProviderError, DigestQueueRunnerError, ValueError) as exc:
+                parser.exit(2, f"topology digest: {exc}\n")
+            print(f"digest jobs leased: {result.leased}")
+            print(f"digest jobs completed: {result.completed}")
+            print(f"digest jobs failed: {result.failed}")
+            for path in result.digest_json_paths:
+                print(f"created digest json: {path}")
+            for path in result.digest_md_paths:
+                print(f"created digest markdown: {path}")
+            return 0 if result.failed == 0 else 1
+        queue_only_args = [
+            args.owner,
+            args.subject_repo_id,
+            args.current_canonical_rev,
+            args.current_subject_head_sha,
+            args.provider_command,
+            args.model_output_dir,
+            args.provider_timeout_seconds != 120,
+            args.max_jobs != 1,
+            args.lease_seconds != 900,
+            args.max_attempts != 3,
+        ]
+        if any(queue_only_args):
+            parser.exit(2, "topology digest: queue-only arguments require --run-queue\n")
+        if not args.source_id or not args.model_output:
+            parser.exit(2, "topology digest: legacy mode requires --source-id and --model-output\n")
         try:
             json_path, md_path = write_digest_artifacts(
-                Path(args.root).expanduser().resolve(),
+                root,
                 source_id=args.source_id,
                 model_adapter=JsonFileDigestAdapter(args.model_output),
             )
