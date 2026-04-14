@@ -35,18 +35,20 @@ for a long-form argument. Extract:
 - the opening misconception or target intuition the speaker rejects
 - the central thesis and why it matters
 - the chapter or segment structure of the argument
-- every named theorem, concept, or counterintuitive result
-- the conditions under which each result holds
-- the intuition-breaking mechanism, not just the label
-- concrete implications for decisions, investing, modeling, or risk
+- every named concept, framework, object, result, method, or claim that is
+  load-bearing in the source's own domain
+- the conditions, assumptions, scope limits, or prerequisites attached to each
+  load-bearing concept or claim
+- the mechanism by which the source says intuition, common practice, or a
+  default assumption fails
+- concrete implications for decisions, practice, modeling, design, research, or
+  interpretation
 - examples used by the speaker and what each example is evidence for
 - caveats, missing assumptions, contested claims, and places where the model
   should not overgeneralize
 
-If the source discusses mathematical/statistical concepts, preserve the
-distinction between expectation, time average, ensemble average, tail risk,
-high-dimensional geometry, estimator behavior, and random-walk occupation
-behavior when those distinctions appear in the evidence.
+Do not assume the video's domain. Let the attached transcript, key-frame notes,
+audio summary, and landing metadata determine the domain vocabulary.
 
 Never write canonical state. Emit one JSON object only, with no Markdown fence,
 commentary, or extra text outside the JSON.

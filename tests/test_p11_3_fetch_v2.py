@@ -402,18 +402,18 @@ class P11FetchV2Tests(unittest.TestCase):
             source_id = json.loads(result.packet_path.read_text(encoding="utf-8"))["id"]
             transcript = root / "transcript.txt"
             transcript.write_text(
-                "主题是统计学里反直觉、颠覆直觉的定理。"
-                "开头反驳只看期望值做决策，乘法型风险下满仓赌局长期走向归零。"
-                "章节包括维度诅咒、James-Stein 估计、反正弦定律、遍历性破缺、尾部风险与极值理论。",
+                "开头反驳一个常见误区。"
+                "核心论证提出中心 thesis、三个章节、两个关键概念、一个反例和一个适用边界。"
+                "结论要求听众不要只记住标签，要理解机制、证据和条件。",
                 encoding="utf-8",
             )
             key_frames = root / "key_frames.txt"
             key_frames.write_text(
-                "关键帧：均值陷阱；高维距离集中；随机游走停留在极端；尾部事件主导风险。",
+                "关键帧：误区标题；章节结构图；反例对照表；适用条件列表。",
                 encoding="utf-8",
             )
             audio = root / "audio_summary.txt"
-            audio.write_text("总结观点：直觉、均值和长期必然赚钱这类说法很危险。", encoding="utf-8")
+            audio.write_text("音频摘要：作者区分主张、证据、机制、例外和开放问题。", encoding="utf-8")
             for kind, path in [
                 ("transcript", transcript),
                 ("key_frames", key_frames),
@@ -430,13 +430,13 @@ class P11FetchV2Tests(unittest.TestCase):
             serialized = json.dumps(request.to_dict(), ensure_ascii=False, sort_keys=True)
             self.assertEqual(request.source_text_kind, "video_artifacts")
             self.assertIn("## transcript", request.source_text or "")
-            self.assertIn("James-Stein", serialized)
-            self.assertIn("反正弦定律", serialized)
-            self.assertIn("遍历性破缺", serialized)
-            self.assertIn("尾部风险", serialized)
+            self.assertIn("中心 thesis", serialized)
+            self.assertIn("关键概念", serialized)
+            self.assertIn("适用边界", serialized)
+            self.assertIn("开放问题", serialized)
             self.assertIn("opening misconception", request.prompt)
             self.assertIn("chapter or segment structure", request.prompt)
-            self.assertIn("intuition-breaking mechanism", request.prompt)
+            self.assertIn("Do not assume the video's domain", request.prompt)
 
     def test_video_artifact_attachment_rejects_non_video_packets_and_symlinks(self):
         with tempfile.TemporaryDirectory() as tmp:
