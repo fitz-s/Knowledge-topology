@@ -3,6 +3,9 @@
 OpenClaw is a runtime consumer of this repository, not the owner of canonical
 topology truth.
 
+OpenClaw-side agents should follow `docs/OPENCLAW_AGENT.md` as their operating
+runbook.
+
 ## External Root
 
 Set `KNOWLEDGE_TOPOLOGY_ROOT` to this repository path when an OpenClaw runtime
