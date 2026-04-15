@@ -104,6 +104,13 @@ def safe_topology_root(path: str | Path) -> Path:
     return root
 
 
+def safe_workspace_root(path: str | Path) -> Path:
+    root = Path(path).expanduser().resolve()
+    if root.is_symlink() or not root.exists() or not root.is_dir():
+        raise BootstrapError("workspace path must be an existing real directory")
+    return root
+
+
 def git_branch(path: Path) -> str:
     import subprocess
 
@@ -133,6 +140,9 @@ def ensure_subject(topology_root: Path, subject_path: Path, *, mutate: bool) -> 
         try:
             if resolve_subject_location(topology_root, subject["location"]) == subject_path:
                 if mutate:
+                    subject_state = read_git_state(subject_path)
+                    if subject_state.head_sha is not None and subject.get("head_sha") == subject_state.head_sha:
+                        return subject
                     return refresh_subject(topology_root, subject["subject_repo_id"], now=utc_now())
                 return subject
         except Exception:
@@ -362,6 +372,125 @@ PY
 """
 
 
+def openclaw_context_script(topology_root: str, subject_path: str) -> str:
+    topology_literal = shlex.quote(topology_root)
+    subject_literal = shlex.quote(subject_path)
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+TOPOLOGY_ROOT={topology_literal}
+DEFAULT_SUBJECT_ROOT={subject_literal}
+export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
+SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
+python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json
+"""
+
+
+def openclaw_doctor_script(topology_root: str, project_id: str, subject_path: str) -> str:
+    topology_literal = shlex.quote(topology_root)
+    subject_literal = shlex.quote(subject_path)
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+TOPOLOGY_ROOT={topology_literal}
+DEFAULT_SUBJECT_ROOT={subject_literal}
+export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
+SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
+CTX="$(python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
+export CTX
+python3 - <<'PY'
+import json, os, subprocess, sys
+ctx = json.loads(os.environ["CTX"])
+cmd = [
+    sys.executable, "-m", "knowledge_topology.cli", "doctor", "projections",
+    "--root", ctx["topology_root"],
+    "--project-id", {project_id!r},
+    "--canonical-rev", ctx["canonical_rev"],
+    "--subject", ctx["subject_repo_id"],
+    "--subject-head-sha", ctx["subject_head_sha"],
+]
+raise SystemExit(subprocess.call(cmd))
+PY
+"""
+
+
+def openclaw_summary_script(topology_root: str, project_id: str, subject_path: str, command: str) -> str:
+    topology_literal = shlex.quote(topology_root)
+    subject_literal = shlex.quote(subject_path)
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ $# -lt 1 ]]; then
+  echo "usage: $0 <runtime-summary-json>" >&2
+  exit 2
+fi
+SUMMARY_JSON="$1"
+TOPOLOGY_ROOT={topology_literal}
+DEFAULT_SUBJECT_ROOT={subject_literal}
+export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
+SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
+CTX="$(python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
+export CTX SUMMARY_JSON
+python3 - <<'PY'
+import json, os, subprocess, sys
+ctx = json.loads(os.environ["CTX"])
+cmd = [
+    sys.executable, "-m", "knowledge_topology.cli", "openclaw", {command!r},
+    "--root", ctx["topology_root"],
+    "--project-id", {project_id!r},
+    "--canonical-rev", ctx["canonical_rev"],
+    "--subject", ctx["subject_repo_id"],
+    "--subject-head-sha", ctx["subject_head_sha"],
+    "--runtime-summary-json", os.environ["SUMMARY_JSON"],
+]
+raise SystemExit(subprocess.call(cmd))
+PY
+"""
+
+
+def openclaw_lease_script(topology_root: str) -> str:
+    topology_literal = shlex.quote(topology_root)
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+OWNER="${{1:-openclaw-live}}"
+TOPOLOGY_ROOT={topology_literal}
+export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
+exec python3 -m knowledge_topology.cli openclaw lease --root "$TOPOLOGY_ROOT" --owner "$OWNER"
+"""
+
+
+def openclaw_run_writeback_script(topology_root: str, project_id: str, subject_path: str) -> str:
+    topology_literal = shlex.quote(topology_root)
+    subject_literal = shlex.quote(subject_path)
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ $# -lt 2 ]]; then
+  echo "usage: $0 <lease-path> <runtime-summary-json>" >&2
+  exit 2
+fi
+LEASE_PATH="$1"
+SUMMARY_JSON="$2"
+TOPOLOGY_ROOT={topology_literal}
+DEFAULT_SUBJECT_ROOT={subject_literal}
+export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
+SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
+CTX="$(python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
+export CTX LEASE_PATH SUMMARY_JSON
+python3 - <<'PY'
+import json, os, subprocess, sys
+ctx = json.loads(os.environ["CTX"])
+cmd = [
+    sys.executable, "-m", "knowledge_topology.cli", "openclaw", "run-writeback",
+    "--root", ctx["topology_root"],
+    "--project-id", {project_id!r},
+    "--canonical-rev", ctx["canonical_rev"],
+    "--subject", ctx["subject_repo_id"],
+    "--subject-head-sha", ctx["subject_head_sha"],
+    "--lease-path", os.environ["LEASE_PATH"],
+    "--runtime-summary-json", os.environ["SUMMARY_JSON"],
+]
+raise SystemExit(subprocess.call(cmd))
+PY
+"""
+
+
 def merge_claude_settings(settings_path: Path) -> str:
     if settings_path.exists():
         payload = json.loads(settings_path.read_text(encoding="utf-8"))
@@ -413,11 +542,15 @@ def openclaw_files(context: dict[str, Any], project_id: str) -> dict[str, tuple[
     if not re.fullmatch(r"[A-Za-z0-9_.:-]+", project_id):
         raise BootstrapError("project_id must be a safe token")
     topology_root = context["topology_root"]
+    env_values = {
+        "KNOWLEDGE_TOPOLOGY_ROOT": topology_root,
+        "OPENCLAW_PROJECT_ID": project_id,
+        "SUBJECT_REPO_ID": context["subject_repo_id"],
+        "SUBJECT_PATH": context["subject_path"],
+    }
     env = "\n".join([
-        f"KNOWLEDGE_TOPOLOGY_ROOT={topology_root}",
-        f"OPENCLAW_PROJECT_ID={project_id}",
-        f"SUBJECT_REPO_ID={context['subject_repo_id']}",
-        f"SUBJECT_PATH={context['subject_path']}",
+        f"{key}={shlex.quote(str(value))}" for key, value in env_values.items()
+    ] + [
         "",
     ])
     qmd_paths = "\n".join([
@@ -430,23 +563,61 @@ def openclaw_files(context: dict[str, Any], project_id: str) -> dict[str, tuple[
     ])
     runtime_consume = """# Runtime Consume
 
-Read only the topology OpenClaw projection files. Do not write canonical,
-digests, mutations, ops, raw, or projection outputs directly.
+Run `.openclaw/topology/compose-openclaw.sh`, then read only:
+
+- projections/openclaw/file-index.json
+- projections/openclaw/runtime-pack.json
+- projections/openclaw/runtime-pack.md
+- projections/openclaw/memory-prompt.md
+- projections/openclaw/wiki-mirror/
+
+Do not write canonical, digests, mutations, ops, raw, or projection outputs
+directly.
 """
     session_writeback = """# Session Writeback
 
-Use `topology openclaw issue-lease`, `topology openclaw lease`, and
-`topology openclaw run-writeback`. Never create canonical records directly.
+Use the generated wrappers:
+
+- `.openclaw/topology/capture-source.sh <summary.json>`
+- `.openclaw/topology/issue-lease.sh <summary.json>`
+- `.openclaw/topology/lease.sh [owner]`
+- `.openclaw/topology/run-writeback.sh <lease-path> <summary.json>`
+
+`capture-source.sh` is a low-level evidence capture primitive. It creates a
+source packet and digest queue work, but it does not make a runtime summary
+writeback-ready by itself.
+
+`run-writeback.sh` requires an enriched summary with `source_id`, `digest_id`,
+and digest evidence bound to the OpenClaw live job. If those fields are missing,
+run digest/reconcile evidence preparation first.
+
+Never create canonical records directly.
 """
     maintainer = """# Topology Maintainer
 
-Run projection composition and runtime lint/doctor checks before relying on the
-projection. Treat memory-wiki and QMD as derived search surfaces only.
+Run `.openclaw/topology/compose-openclaw.sh` and
+`.openclaw/topology/doctor-openclaw.sh` before relying on the projection. Treat
+memory-wiki and QMD as derived search surfaces only.
+
+Forbidden write surfaces:
+
+- canonical/
+- canonical/registry/
+- digests/
+- projections/openclaw/
+- raw/local_blobs/
+- private OpenClaw session/config/cache paths
 """
     return {
         ".openclaw/topology/topology.env": (env, False),
         ".openclaw/topology/qmd-extra-paths.txt": (qmd_paths, False),
+        ".openclaw/topology/resolve-context.sh": (openclaw_context_script(topology_root, context["subject_path"]), True),
         ".openclaw/topology/compose-openclaw.sh": (openclaw_compose_script(topology_root, project_id, context["subject_path"]), True),
+        ".openclaw/topology/doctor-openclaw.sh": (openclaw_doctor_script(topology_root, project_id, context["subject_path"]), True),
+        ".openclaw/topology/capture-source.sh": (openclaw_summary_script(topology_root, project_id, context["subject_path"], "capture-source"), True),
+        ".openclaw/topology/issue-lease.sh": (openclaw_summary_script(topology_root, project_id, context["subject_path"], "issue-lease"), True),
+        ".openclaw/topology/lease.sh": (openclaw_lease_script(topology_root), True),
+        ".openclaw/topology/run-writeback.sh": (openclaw_run_writeback_script(topology_root, project_id, context["subject_path"]), True),
         ".openclaw/topology/skills/runtime-consume.md": (runtime_consume, False),
         ".openclaw/topology/skills/session-writeback.md": (session_writeback, False),
         ".openclaw/topology/skills/topology-maintainer.md": (maintainer, False),
@@ -524,8 +695,8 @@ def bootstrap_consumer(topology_root: str | Path, subject_path: str | Path, *, t
     return BootstrapResult(context=context, written=written, skipped=skipped, manifest_path=manifest_out)
 
 
-def remove_bootstrap(subject_path: str | Path) -> ConsumerDoctorResult:
-    root = safe_subject_path(subject_path)
+def remove_bootstrap(subject_path: str | Path, *, workspace: str | Path | None = None) -> ConsumerDoctorResult:
+    root = safe_workspace_root(workspace) if workspace is not None else safe_subject_path(subject_path)
     manifest = read_manifest(root)
     if manifest is None:
         return ConsumerDoctorResult(False, ["consumer manifest missing"])
@@ -546,13 +717,13 @@ def remove_bootstrap(subject_path: str | Path) -> ConsumerDoctorResult:
     return ConsumerDoctorResult(True, messages)
 
 
-def doctor_consumer(topology_root: str | Path, subject_path: str | Path) -> ConsumerDoctorResult:
+def doctor_consumer(topology_root: str | Path, subject_path: str | Path, *, workspace: str | Path | None = None) -> ConsumerDoctorResult:
     messages: list[str] = []
     try:
         context = resolve_context(topology_root, subject_path)
     except Exception as exc:
         return ConsumerDoctorResult(False, [f"context invalid: {exc}"])
-    root = safe_subject_path(subject_path)
+    root = safe_workspace_root(workspace) if workspace is not None else safe_subject_path(subject_path)
     manifest = read_manifest(root)
     if manifest is None:
         return ConsumerDoctorResult(False, ["consumer manifest missing"])

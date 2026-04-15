@@ -13,6 +13,58 @@ files.
 Do not copy OpenClaw config, credentials, sessions, gateway state, or private
 workspace memory into this repository.
 
+## Consumer Bundle
+
+Install the workspace-local bundle from the topology repo:
+
+```bash
+topology bootstrap openclaw \
+  --topology-root "$KNOWLEDGE_TOPOLOGY_ROOT" \
+  --subject-path "<subject-repo-path>" \
+  --workspace "<openclaw-workspace-path>" \
+  --project-id "<runtime-project-id>"
+```
+
+The command writes only consumer-local wiring under
+`<openclaw-workspace-path>/.openclaw/topology/`:
+
+- `topology.env`
+- `qmd-extra-paths.txt`
+- `resolve-context.sh`
+- `compose-openclaw.sh`
+- `doctor-openclaw.sh`
+- `capture-source.sh`
+- `issue-lease.sh`
+- `lease.sh`
+- `run-writeback.sh`
+- `skills/runtime-consume.md`
+- `skills/session-writeback.md`
+- `skills/topology-maintainer.md`
+
+The wrappers resolve fresh `canonical_rev`, `subject_repo_id`, and
+`subject_head_sha` at runtime. They do not hard-code stale revisions, copy the
+topology into the OpenClaw workspace, or grant canonical write authority.
+
+Recommended runtime flow:
+
+1. Run `.openclaw/topology/compose-openclaw.sh`.
+2. Run `.openclaw/topology/doctor-openclaw.sh`.
+3. Read only the projection files listed in `qmd-extra-paths.txt`.
+4. Capture runtime evidence with `.openclaw/topology/capture-source.sh`.
+5. After digest evidence exists, use `.openclaw/topology/issue-lease.sh`,
+   `.openclaw/topology/lease.sh`, and
+   `.openclaw/topology/run-writeback.sh` with an enriched summary that includes
+   `source_id`, `digest_id`, and evidence bound to the leased job.
+
+`capture-source.sh` is a low-level capture primitive. It creates source
+evidence and digest queue work; it does not make the original runtime summary
+ready for `run-writeback.sh` by itself.
+
+Use `topology doctor consumer --workspace "<openclaw-workspace-path>"` to
+check generated bundle drift. Use
+`topology bootstrap remove --workspace "<openclaw-workspace-path>"` to remove
+unchanged generated bundle files recorded in the manifest.
+
 ## Runtime Projection
 
 Generate the local-only projection with:

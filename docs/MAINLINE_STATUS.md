@@ -39,6 +39,7 @@ contract.
 | P12.0 State Convergence Patch | approved | `docs/package-plans/P12_USAGE_CLOSURE.md` | `docs/package-reviews/P12_0_UNFREEZE.md` |
 | P12.1 Consumer Bootstrap | waived_by_user | `docs/package-plans/P12_1_CONSUMER_BOOTSTRAP.md` | `docs/package-reviews/P12_1_UNFREEZE.md` |
 | P12.2 Video / Media Closure | approved | `docs/package-plans/P12_2_VIDEO_MEDIA_CLOSURE.md` | `docs/package-reviews/P12_2_UNFREEZE.md` |
+| P12.3 OpenClaw Consumer Bundle | waived_by_user | `docs/package-plans/P12_3_OPENCLAW_CONSUMER_BUNDLE.md` | `docs/package-reviews/P12_3_UNFREEZE.md` |
 
 ## Shipped CLI Reality
 
@@ -111,9 +112,8 @@ The following items are intentionally not shipped in the P0-P9 mainline:
 - deep social thread expansion resolver
 - Codex topology MCP registration
 - Claude changed-file lint/writeback hooks
-- live OpenClaw adapter
+- hosted OpenClaw service or topology MCP server
 - OpenClaw private workspace writes
-- queue leases around external OpenClaw writes
 - OpenClaw memory-wiki import or live validation
 - OpenClaw QMD live indexing validation
 - OpenClaw natural-language runtime context sanitizer
@@ -129,6 +129,28 @@ Shipped after P11.7:
 - `topology video attach-artifact` binds downloaded local videos, transcripts,
   key-frame descriptions, audio summaries, or landing metadata back to the
   source packet through public-safe metadata and local-only blobs.
+
+## OpenClaw Consumer Bundle
+
+Shipped after P12.3:
+
+- `topology bootstrap openclaw` generates an OpenClaw workspace-local bundle
+  under `.openclaw/topology/`.
+- Generated wrappers include `resolve-context.sh`, `compose-openclaw.sh`,
+  `doctor-openclaw.sh`, `capture-source.sh`, `issue-lease.sh`, `lease.sh`, and
+  `run-writeback.sh`.
+- Generated snippets include runtime consume, session writeback, and topology
+  maintainer skills that keep OpenClaw on projection reads and topology-owned
+  writeback leases.
+- Generated QMD extra paths include only `projections/openclaw/file-index.json`,
+  `runtime-pack.json`, `runtime-pack.md`, `memory-prompt.md`, and
+  `wiki-mirror/`.
+- `topology doctor consumer --workspace ...` and
+  `topology bootstrap remove --workspace ...` check and remove unchanged
+  OpenClaw workspace generated files from the manifest.
+- The bundle remains consumer-local wiring. It does not copy whole topology
+  content into OpenClaw and does not grant canonical, digest, or projection
+  write authority.
 
 ## Mainline Boundary
 

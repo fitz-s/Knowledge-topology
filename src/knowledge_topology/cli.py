@@ -133,6 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
     openclaw_bootstrap.add_argument("--project-id", required=True, help="OpenClaw runtime project id")
     bootstrap_remove = bootstrap_subparsers.add_parser("remove", help="remove generated consumer wiring")
     bootstrap_remove.add_argument("--subject-path", required=True, help="subject repo path")
+    bootstrap_remove.add_argument("--workspace", help="OpenClaw workspace path for workspace-local bundle removal")
 
     subject_parser = subparsers.add_parser("subject", help="manage subject registry")
     subject_subparsers = subject_parser.add_subparsers(dest="subject_command")
@@ -200,6 +201,7 @@ def build_parser() -> argparse.ArgumentParser:
     consumer_parser = doctor_subparsers.add_parser("consumer", help="report external consumer wiring health")
     consumer_parser.add_argument("--topology-root", required=True, help="topology root")
     consumer_parser.add_argument("--subject-path", required=True, help="subject repo path")
+    consumer_parser.add_argument("--workspace", help="OpenClaw workspace path for workspace-local bundle checks")
 
     video_parser = subparsers.add_parser("video", help="manage platform video evidence workflows")
     video_subparsers = video_parser.add_subparsers(dest="video_command")
@@ -453,7 +455,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "bootstrap" and args.bootstrap_command == "remove":
         try:
-            result = remove_bootstrap(args.subject_path)
+            result = remove_bootstrap(args.subject_path, workspace=args.workspace)
         except (BootstrapError, ValueError) as exc:
             parser.exit(2, f"topology bootstrap remove: {exc}\n")
         for message in result.messages:
@@ -577,7 +579,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result.ok else 1
     if args.command == "doctor" and args.doctor_command == "consumer":
         try:
-            result = doctor_consumer(args.topology_root, args.subject_path)
+            result = doctor_consumer(args.topology_root, args.subject_path, workspace=args.workspace)
         except (BootstrapError, ValueError) as exc:
             parser.exit(2, f"topology doctor consumer: {exc}\n")
         for message in result.messages:

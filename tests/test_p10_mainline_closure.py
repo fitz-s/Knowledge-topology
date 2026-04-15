@@ -54,6 +54,7 @@ class P10MainlineClosureTests(unittest.TestCase):
             "docs/package-plans/P11_7_VIDEO_PLATFORM_INGEST.md",
             "docs/package-plans/P12_1_CONSUMER_BOOTSTRAP.md",
             "docs/package-plans/P12_2_VIDEO_MEDIA_CLOSURE.md",
+            "docs/package-plans/P12_3_OPENCLAW_CONSUMER_BUNDLE.md",
         ]:
             self.assertTrue((ROOT / plan).exists(), plan)
             self.assertIn(plan, status)
@@ -67,6 +68,7 @@ class P10MainlineClosureTests(unittest.TestCase):
             "docs/package-reviews/P11_7_UNFREEZE.md",
             "docs/package-reviews/P12_1_UNFREEZE.md",
             "docs/package-reviews/P12_2_UNFREEZE.md",
+            "docs/package-reviews/P12_3_UNFREEZE.md",
         ]:
             self.assertTrue((ROOT / review).exists(), review)
             self.assertIn(review, status)
@@ -81,9 +83,8 @@ class P10MainlineClosureTests(unittest.TestCase):
             "deep social thread expansion resolver",
             "Codex topology MCP registration",
             "Claude changed-file lint/writeback hooks",
-            "live OpenClaw adapter",
+            "hosted OpenClaw service or topology MCP server",
             "OpenClaw private workspace writes",
-            "queue leases around external OpenClaw writes",
             "OpenClaw memory-wiki import or live validation",
             "OpenClaw QMD live indexing validation",
             "OpenClaw natural-language runtime context sanitizer",
@@ -95,6 +96,7 @@ class P10MainlineClosureTests(unittest.TestCase):
         self.assertIn("topology MCP registration is deferred", plan)
         self.assertIn("Claude changed-file lint/writeback hooks are deferred", plan)
         self.assertIn("structured-only local runtime projection", plan)
+        self.assertIn("P12.3 packages the OpenClaw read/writeback protocol", plan)
 
     def test_cli_reality_matches_status(self):
         plan = read("docs/IMPLEMENTATION_PLAN.md")
