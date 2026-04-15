@@ -37,9 +37,15 @@ The command writes only consumer-local wiring under
 - `issue-lease.sh`
 - `lease.sh`
 - `run-writeback.sh`
+- `video-ingest.sh`
+- `video-status.sh`
+- `video-attach-artifact.sh`
+- `video-prepare-digest.sh`
+- `video-trace.sh`
 - `skills/runtime-consume.md`
 - `skills/session-writeback.md`
 - `skills/topology-maintainer.md`
+- `skills/video-source-intake.md`
 
 The wrappers resolve fresh `canonical_rev`, `subject_repo_id`, and
 `subject_head_sha` at runtime. They do not hard-code stale revisions, copy the
@@ -64,6 +70,23 @@ Use `topology doctor consumer --workspace "<openclaw-workspace-path>"` to
 check generated bundle drift. Use
 `topology bootstrap remove --workspace "<openclaw-workspace-path>"` to remove
 unchanged generated bundle files recorded in the manifest.
+
+## Video Operator Protocol
+
+OpenClaw must not summarize video content from title, description, or chapter
+lists. A `video_platform` locator packet is not learned video knowledge.
+
+Video deep digest requires real modality evidence:
+
+- transcript: platform captions, audio transcription, or human transcript
+- key frames: frame extraction, vision frame analysis, or human frame notes
+- audio summary: audio-derived model summary or human audio summary
+
+Page-visible excerpts, page-visible chapter lists, and inferred page summaries
+are shallow locator evidence only. They must not be labeled as transcript, key
+frames, or audio summary for deep digest readiness.
+
+No `dg_` path means no digest. No `mut_` path means no proposal.
 
 ## Runtime Projection
 

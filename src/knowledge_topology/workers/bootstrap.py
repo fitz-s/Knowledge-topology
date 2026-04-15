@@ -491,6 +491,62 @@ PY
 """
 
 
+def openclaw_video_script(topology_root: str, subject_path: str, command: str) -> str:
+    topology_literal = shlex.quote(topology_root)
+    subject_literal = shlex.quote(subject_path)
+    if command == "ingest":
+        return f"""#!/usr/bin/env bash
+set -euo pipefail
+TOPOLOGY_ROOT={topology_literal}
+DEFAULT_SUBJECT_ROOT={subject_literal}
+export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
+SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
+CTX="$(python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
+export CTX
+python3 - "$@" <<'PY'
+import json, os, subprocess, sys
+ctx = json.loads(os.environ["CTX"])
+cmd = [
+    sys.executable, "-m", "knowledge_topology.cli", "video", "ingest",
+    *sys.argv[1:],
+    "--root", ctx["topology_root"],
+    "--subject", ctx["subject_repo_id"],
+    "--subject-head-sha", ctx["subject_head_sha"],
+    "--base-canonical-rev", ctx["canonical_rev"],
+]
+raise SystemExit(subprocess.call(cmd))
+PY
+"""
+    if command == "attach-artifact":
+        return f"""#!/usr/bin/env bash
+set -euo pipefail
+for arg in "$@"; do
+  case "$arg" in
+    --evidence-attestation|--evidence-attestation=*|--attestation-manifest|--attestation-manifest=*)
+      echo "OpenClaw video attach wrapper cannot create operator/provider-attested deep evidence" >&2
+      exit 2
+      ;;
+  esac
+done
+TOPOLOGY_ROOT={topology_literal}
+DEFAULT_SUBJECT_ROOT={subject_literal}
+export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
+SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
+python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json >/dev/null
+exec python3 -m knowledge_topology.cli video attach-artifact --root "$TOPOLOGY_ROOT" "$@"
+"""
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+TOPOLOGY_ROOT={topology_literal}
+DEFAULT_SUBJECT_ROOT={subject_literal}
+export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
+SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
+CTX="$(python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
+export CTX
+exec python3 -m knowledge_topology.cli video {command} --root "$TOPOLOGY_ROOT" "$@"
+"""
+
+
 def merge_claude_settings(settings_path: Path) -> str:
     if settings_path.exists():
         payload = json.loads(settings_path.read_text(encoding="utf-8"))
@@ -608,6 +664,40 @@ Forbidden write surfaces:
 - raw/local_blobs/
 - private OpenClaw session/config/cache paths
 """
+    video_source_intake = """# Video Source Intake
+
+Video locator packets are not learned video knowledge. Page-visible title,
+description, or chapter lists are not a transcript, key frames, or audio
+summary.
+
+Hard rules:
+
+- Do not summarize video content from title, description, or chapter list.
+- Do not label page-visible text as transcript.
+- Do not label a chapter list as key frames.
+- Do not label inferred page summary as audio summary.
+- No `dg_` path means no digest.
+- No `mut_` path means no proposal.
+- A `src_` locator packet alone is not learned knowledge.
+
+Required workflow:
+
+1. Run `.openclaw/topology/video-ingest.sh <url> --note ... --subject ...`
+   or the equivalent topology CLI.
+2. Run `.openclaw/topology/video-status.sh --source-id <src_...>`.
+3. If `ready_for_deep_digest` is false, report the missing artifact checklist
+   and stop. Do not produce a content-level digest.
+4. Attach only real modality evidence:
+   - transcript: platform_caption, audio_transcription, or human_transcript
+   - key_frames: frame_extraction, vision_frame_analysis, or human_frame_notes
+   - audio_summary: audio_model_summary or human_audio_summary
+   The default OpenClaw attach wrapper cannot create operator/provider-attested
+   deep evidence. Use it only for shallow/local staging unless an external
+   operator or provider manifest is supplied through a non-default trusted path.
+5. Run `.openclaw/topology/video-prepare-digest.sh --source-id <src_...>`.
+6. Only after digest/reconcile artifacts exist may you claim the video entered
+   the knowledge system. Return the actual `src_`, `dg_`, and `mut_` paths.
+"""
     return {
         ".openclaw/topology/topology.env": (env, False),
         ".openclaw/topology/qmd-extra-paths.txt": (qmd_paths, False),
@@ -618,9 +708,15 @@ Forbidden write surfaces:
         ".openclaw/topology/issue-lease.sh": (openclaw_summary_script(topology_root, project_id, context["subject_path"], "issue-lease"), True),
         ".openclaw/topology/lease.sh": (openclaw_lease_script(topology_root), True),
         ".openclaw/topology/run-writeback.sh": (openclaw_run_writeback_script(topology_root, project_id, context["subject_path"]), True),
+        ".openclaw/topology/video-ingest.sh": (openclaw_video_script(topology_root, context["subject_path"], "ingest"), True),
+        ".openclaw/topology/video-status.sh": (openclaw_video_script(topology_root, context["subject_path"], "status"), True),
+        ".openclaw/topology/video-attach-artifact.sh": (openclaw_video_script(topology_root, context["subject_path"], "attach-artifact"), True),
+        ".openclaw/topology/video-prepare-digest.sh": (openclaw_video_script(topology_root, context["subject_path"], "prepare-digest"), True),
+        ".openclaw/topology/video-trace.sh": (openclaw_video_script(topology_root, context["subject_path"], "trace"), True),
         ".openclaw/topology/skills/runtime-consume.md": (runtime_consume, False),
         ".openclaw/topology/skills/session-writeback.md": (session_writeback, False),
         ".openclaw/topology/skills/topology-maintainer.md": (maintainer, False),
+        ".openclaw/topology/skills/video-source-intake.md": (video_source_intake, False),
     }
 
 

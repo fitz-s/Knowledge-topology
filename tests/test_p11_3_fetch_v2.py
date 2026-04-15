@@ -54,6 +54,23 @@ def ingest(root: Path, value: str, **kwargs):
     )
 
 
+def write_attestation(root: Path, kind: str, provenance: tuple[str, str, str, str]) -> Path:
+    path = root / f"{kind}_attestation.json"
+    path.write_text(
+        json.dumps({
+            "schema_version": "1.0",
+            "artifact_kind": kind,
+            "evidence_origin": provenance[0],
+            "coverage": provenance[1],
+            "modality": provenance[2],
+            "evidence_attestation": provenance[3],
+            "attested_by": "operator",
+        }),
+        encoding="utf-8",
+    )
+    return path
+
+
 class P11FetchV2Tests(unittest.TestCase):
     def test_article_html_extracts_body_excerpt_and_strips_hidden_content(self):
         html = b"""
@@ -395,6 +412,10 @@ class P11FetchV2Tests(unittest.TestCase):
             self.assertEqual(artifact["kind"], "video_text_artifact")
             self.assertEqual(artifact["artifact_kind"], "transcript")
             self.assertEqual(artifact["path"], "transcript.md")
+            self.assertEqual(artifact["evidence_origin"], "legacy_unknown")
+            self.assertEqual(artifact["coverage"], "legacy_unknown")
+            self.assertEqual(artifact["modality"], "legacy_unknown")
+            self.assertEqual(artifact["evidence_attestation"], "legacy_unknown")
             tracked = (updated_path.parent / "transcript.md").read_text(encoding="utf-8")
             self.assertLessEqual(len(tracked.strip()), EXTERNAL_PUBLIC_TEXT_LIMIT)
             self.assertIn("spoken words", tracked)
@@ -424,12 +445,23 @@ class P11FetchV2Tests(unittest.TestCase):
                 ("key_frames", key_frames),
                 ("audio_summary", audio),
             ]:
+                provenance = {
+                    "transcript": ("human_transcript", "partial", "human_note", "operator_attested"),
+                    "key_frames": ("human_frame_notes", "partial", "human_note", "operator_attested"),
+                    "audio_summary": ("human_audio_summary", "partial", "human_note", "operator_attested"),
+                }[kind]
                 attach_video_artifact(
                     root,
                     source_id=source_id,
                     artifact_kind=kind,
                     artifact_path=path,
                     track_text=True,
+                    evidence_origin=provenance[0],
+                    coverage=provenance[1],
+                    modality=provenance[2],
+                    evidence_attestation=provenance[3],
+                    attestation_manifest=write_attestation(root, kind, provenance),
+                    trusted_attestation=True,
                 )
             request = build_digest_model_request(root, source_id)
             serialized = json.dumps(request.to_dict(), ensure_ascii=False, sort_keys=True)

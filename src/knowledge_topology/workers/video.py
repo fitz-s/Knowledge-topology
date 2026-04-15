@@ -28,6 +28,27 @@ TEXT_ARTIFACT_PATHS = {"transcript.md", "key_frames.md", "audio_summary.md", "la
 PROVIDERS = {"manual-upload", "youtube", "yt-dlp", "browser-capture"}
 TRANSCRIBERS = {"none", "whisper", "provider"}
 VISION_PROVIDERS = {"none", "gemini", "openai"}
+DEEP_READY_ORIGINS = {
+    "transcript": {"platform_caption", "audio_transcription", "human_transcript"},
+    "key_frames": {"frame_extraction", "vision_frame_analysis", "human_frame_notes"},
+    "audio_summary": {"audio_model_summary", "human_audio_summary"},
+}
+SHALLOW_ONLY_ORIGINS = {"page_visible_excerpt", "page_visible_chapter_list", "inferred_from_page", "legacy_unknown"}
+PROVIDER_ATTESTED_ORIGINS = {"platform_caption", "audio_transcription", "frame_extraction", "vision_frame_analysis", "audio_model_summary"}
+HUMAN_ATTESTED_ORIGINS = {"human_transcript", "human_frame_notes", "human_audio_summary"}
+SHALLOW_CONTENT_MARKERS = (
+    "page-visible",
+    "page visible",
+    "visible page",
+    "visible description",
+    "chapter list",
+    "chapter structure",
+    "not a full audio transcript",
+    "not from a full transcript",
+    "inferred from the visible page",
+    "inferred from page",
+    "not from audio",
+)
 
 
 @dataclass(frozen=True)
@@ -45,6 +66,9 @@ def video_status(root: str | Path, source_id: str) -> dict[str, Any]:
         raise VideoWorkflowError("source packet is not video_platform")
     present = set()
     text_ready = set()
+    deep_ready = set()
+    shallow_only: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
     local_blob_bytes = 0
     for artifact in packet.artifacts:
         if not isinstance(artifact, dict):
@@ -54,22 +78,100 @@ def video_status(root: str | Path, source_id: str) -> dict[str, Any]:
             present.add(artifact_kind)
             if artifact.get("kind") == "video_text_artifact" and video_text_artifact_readable(packet_path.parent, artifact):
                 text_ready.add(artifact_kind)
+                if video_text_deep_ready(packet_path.parent, artifact_kind, artifact):
+                    deep_ready.add(artifact_kind)
+                elif artifact_kind in REQUIRED_TEXT_ARTIFACTS:
+                    reason = shallow_artifact_reason(packet_path.parent, artifact_kind, artifact)
+                    rejected.append({"artifact_kind": artifact_kind, "reason": reason})
+                    shallow_only.append({
+                        "artifact_kind": artifact_kind,
+                        "evidence_origin": artifact.get("evidence_origin", "legacy_unknown"),
+                        "coverage": artifact.get("coverage", "legacy_unknown"),
+                        "modality": artifact.get("modality", "legacy_unknown"),
+                    })
         if artifact.get("kind") == "local_blob_ref" and isinstance(artifact.get("byte_length"), int):
             local_blob_bytes += artifact["byte_length"]
-    missing = [kind for kind in REQUIRED_TEXT_ARTIFACTS if kind not in text_ready]
+    missing = [kind for kind in REQUIRED_TEXT_ARTIFACTS if kind not in deep_ready]
     optional_missing = [kind for kind in OPTIONAL_ARTIFACTS if kind not in present]
     ready = not missing
     return {
         "source_id": packet.id,
-        "packet_path": str(packet_path),
+        "packet_path": str(packet_path.relative_to(paths.root)),
         "ready_for_deep_digest": ready,
         "present_artifacts": sorted(present),
         "text_ready_artifacts": sorted(text_ready),
+        "deep_ready_artifacts": sorted(deep_ready),
+        "shallow_only_artifacts": shallow_only,
+        "rejected_for_deep_digest": rejected,
         "missing_required_artifacts": missing,
         "missing_optional_artifacts": optional_missing,
         "local_blob_bytes": local_blob_bytes,
         "next_actions": missing_actions(missing),
     }
+
+
+def video_artifact_deep_ready(artifact_kind: str, artifact: dict[str, Any]) -> bool:
+    allowed = DEEP_READY_ORIGINS.get(artifact_kind)
+    if allowed is None:
+        return False
+    origin = artifact.get("evidence_origin", "legacy_unknown")
+    coverage = artifact.get("coverage", "legacy_unknown")
+    modality = artifact.get("modality", "legacy_unknown")
+    attestation = artifact.get("evidence_attestation", "legacy_unknown")
+    if origin not in allowed:
+        return False
+    if origin in PROVIDER_ATTESTED_ORIGINS and attestation != "provider_generated":
+        return False
+    if origin in HUMAN_ATTESTED_ORIGINS and attestation != "operator_attested":
+        return False
+    manifest_hash = artifact.get("attestation_manifest_hash")
+    if attestation in {"operator_attested", "provider_generated"} and not (isinstance(manifest_hash, str) and manifest_hash.startswith("sha256:")):
+        return False
+    if coverage in {"page_visible_only", "chapter_only", "legacy_unknown"}:
+        return False
+    if modality == "page" or modality == "legacy_unknown":
+        return False
+    return True
+
+
+def text_contains_shallow_markers(text: str) -> bool:
+    folded = text.casefold()
+    return any(marker in folded for marker in SHALLOW_CONTENT_MARKERS)
+
+
+def video_text_deep_ready(packet_dir: Path, artifact_kind: str, artifact: dict[str, Any]) -> bool:
+    if not video_artifact_deep_ready(artifact_kind, artifact):
+        return False
+    path = artifact.get("path")
+    if not isinstance(path, str):
+        return False
+    target = packet_dir / path
+    return not text_contains_shallow_markers(target.read_text(encoding="utf-8", errors="replace"))
+
+
+def shallow_artifact_reason(packet_dir: Path, artifact_kind: str, artifact: dict[str, Any]) -> str:
+    origin = artifact.get("evidence_origin", "legacy_unknown")
+    coverage = artifact.get("coverage", "legacy_unknown")
+    modality = artifact.get("modality", "legacy_unknown")
+    attestation = artifact.get("evidence_attestation", "legacy_unknown")
+    if origin in SHALLOW_ONLY_ORIGINS:
+        return f"{origin} cannot satisfy {artifact_kind} evidence"
+    if origin in PROVIDER_ATTESTED_ORIGINS and attestation != "provider_generated":
+        return f"{origin} requires provider_generated attestation"
+    if origin in HUMAN_ATTESTED_ORIGINS and attestation != "operator_attested":
+        return f"{origin} requires operator_attested attestation"
+    if attestation in {"operator_attested", "provider_generated"} and not isinstance(artifact.get("attestation_manifest_hash"), str):
+        return f"{artifact_kind} requires external attestation manifest"
+    if coverage in {"page_visible_only", "chapter_only", "legacy_unknown"}:
+        return f"{coverage} coverage cannot satisfy {artifact_kind} evidence"
+    if modality in {"page", "legacy_unknown"}:
+        return f"{modality} modality cannot satisfy {artifact_kind} evidence"
+    path = artifact.get("path")
+    if isinstance(path, str):
+        target = packet_dir / path
+        if target.exists() and not target.is_symlink() and text_contains_shallow_markers(target.read_text(encoding="utf-8", errors="replace")):
+            return f"{artifact_kind} text contains page-visible or inferred-content markers"
+    return f"{artifact_kind} artifact lacks accepted deep evidence provenance"
 
 
 def video_text_artifact_readable(packet_dir: Path, artifact: dict[str, Any]) -> bool:
@@ -97,10 +199,44 @@ def missing_actions(missing: list[str]) -> list[str]:
 def prepare_digest(root: str | Path, source_id: str, *, allow_locator_only: bool = False) -> dict[str, Any]:
     status = video_status(root, source_id)
     if status["ready_for_deep_digest"]:
-        return {**status, "digest_ready": True, "shallow_risk": False}
+        return {**status, "digest_ready": True, "deep_digest_ready": True, "locator_digest_allowed": False, "shallow_risk": False}
     if allow_locator_only:
-        return {**status, "digest_ready": True, "shallow_risk": True}
-    return {**status, "digest_ready": False, "shallow_risk": True}
+        return {**status, "digest_ready": False, "deep_digest_ready": False, "locator_digest_allowed": True, "shallow_risk": True}
+    return {**status, "digest_ready": False, "deep_digest_ready": False, "locator_digest_allowed": False, "shallow_risk": True}
+
+
+def video_trace(root: str | Path, source_id: str) -> dict[str, Any]:
+    paths = TopologyPaths.from_root(root)
+    packet_path, _ = read_packet(paths, source_id)
+    status = video_status(root, source_id)
+    digest_paths = sorted(paths.resolve(f"digests/by_source/{source_id}").glob("dg_*.json"))
+    mutation_paths = []
+    for path in sorted(paths.resolve("mutations/pending").glob("mut_*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if source_id in payload.get("evidence_refs", []) or payload.get("metadata", {}).get("source_id") == source_id:
+            mutation_paths.append(path)
+    if mutation_paths:
+        stage = "reconciled"
+    elif digest_paths:
+        stage = "digested"
+    elif status["ready_for_deep_digest"]:
+        stage = "deep_ready"
+    elif status["present_artifacts"]:
+        stage = "shallow_evidence"
+    else:
+        stage = "locator_only"
+    return {
+        "source_id": source_id,
+        "stage": stage,
+        "packet": str(packet_path.relative_to(paths.root)),
+        "digest_paths": [str(path.relative_to(paths.root)) for path in digest_paths],
+        "mutation_paths": [str(path.relative_to(paths.root)) for path in mutation_paths],
+        "blocking_reasons": [item["reason"] for item in status["rejected_for_deep_digest"]] + status["next_actions"],
+        "ready_for_deep_digest": status["ready_for_deep_digest"],
+    }
 
 
 def provider_status(provider: str, transcriber: str, vision_provider: str) -> list[dict[str, Any]]:

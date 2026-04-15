@@ -430,10 +430,14 @@ Video evidence commands:
 - `topology video ingest`: create a video locator packet, run local/optional
   provider orchestration, and report digest-readiness checklist.
 - `topology video status`: report video artifact completeness.
+- `topology video trace`: report the video source stage and concrete
+  `src_`/`dg_`/`mut_` artifact paths.
 - `topology video prepare-digest`: gate digest readiness for video sources.
 - `topology video attach-artifact`: bind local video, transcript, key-frame,
   audio summary, or landing metadata artifacts to a `video_platform` source
-  packet.
+  packet. P13.0 requires video text artifacts to declare evidence origin,
+  coverage, and modality; page-visible or inferred artifacts are shallow-only
+  and cannot satisfy deep digest readiness.
 
 Consumer bootstrap commands:
 

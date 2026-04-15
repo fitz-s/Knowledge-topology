@@ -72,6 +72,10 @@ ARTIFACT_FIELDS = {
     "recommended_artifacts",
     "artifact_kind",
     "source_hash_sha256",
+    "evidence_origin",
+    "coverage",
+    "modality",
+    "evidence_attestation",
 }
 SAFE_ARTIFACT_PATHS = {"content.md", "excerpt.md", *VIDEO_TEXT_ARTIFACT_PATHS}
 SAFE_URL_FIELDS = {"final_url", "raw_url", "abs_url", "pdf_url", "url"}
@@ -256,10 +260,13 @@ def build_digest_model_request(root: str | Path, source_id: str) -> DigestModelR
         source_text = safe_packet_text_file(packet_dir, "excerpt.md")
         source_text_kind = "excerpt.md" if source_text is not None else None
     if packet.source_type == "video_platform":
+        from knowledge_topology.workers.video import video_text_deep_ready
+
         sections = []
         if source_text is not None:
             sections.append(("locator_excerpt", source_text))
         attached_text_kinds = set()
+        shallow_rejections = []
         for artifact in source_packet.get("artifacts", []):
             if not isinstance(artifact, dict) or artifact.get("kind") != "video_text_artifact":
                 continue
@@ -269,13 +276,20 @@ def build_digest_model_request(root: str | Path, source_id: str) -> DigestModelR
                 continue
             text = safe_packet_text_file(packet_dir, path)
             if text:
-                attached_text_kinds.add(str(artifact_kind))
-                sections.append((str(artifact_kind), text))
+                if video_text_deep_ready(packet_dir, str(artifact_kind), artifact):
+                    attached_text_kinds.add(str(artifact_kind))
+                    sections.append((str(artifact_kind), text))
+                else:
+                    shallow_rejections.append(str(artifact_kind))
         missing = {"transcript", "key_frames", "audio_summary"} - attached_text_kinds
         if missing:
+            suffix = ""
+            if shallow_rejections:
+                suffix = "; shallow-only artifacts cannot satisfy deep digest: " + ", ".join(sorted(set(shallow_rejections)))
             raise DigestWorkerError(
                 "video_platform source is not ready for deep digest; missing artifacts: "
                 + ", ".join(sorted(missing))
+                + suffix
             )
         if sections:
             joined = "\n\n".join(f"## {label}\n{text}" for label, text in sections)

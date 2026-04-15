@@ -41,6 +41,7 @@ from knowledge_topology.workers.video import VideoWorkflowError
 from knowledge_topology.workers.video import prepare_digest as prepare_video_digest
 from knowledge_topology.workers.video import video_ingest
 from knowledge_topology.workers.video import video_status
+from knowledge_topology.workers.video import video_trace
 from knowledge_topology.workers.writeback import WritebackError, writeback_session
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
 from knowledge_topology.workers.fetch import FetchError, attach_video_artifact, ingest_source
@@ -224,6 +225,9 @@ def build_parser() -> argparse.ArgumentParser:
     video_status_parser = video_subparsers.add_parser("status", help="report video source evidence completeness")
     video_status_parser.add_argument("--root", default=".", help="topology root")
     video_status_parser.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_trace_parser = video_subparsers.add_parser("trace", help="trace video source pipeline stage")
+    video_trace_parser.add_argument("--root", default=".", help="topology root")
+    video_trace_parser.add_argument("--source-id", required=True, help="video_platform source packet id")
     video_prepare = video_subparsers.add_parser("prepare-digest", help="check video source digest readiness")
     video_prepare.add_argument("--root", default=".", help="topology root")
     video_prepare.add_argument("--source-id", required=True, help="video_platform source packet id")
@@ -240,6 +244,11 @@ def build_parser() -> argparse.ArgumentParser:
     video_attach.add_argument("--artifact-path", required=True, help="local artifact file")
     video_attach.add_argument("--note", default="operator captured artifact", help="artifact note")
     video_attach.add_argument("--track-text", action="store_true", help="track bounded text excerpt instead of a local blob ref")
+    video_attach.add_argument("--evidence-origin", default="legacy_unknown", help="semantic evidence origin")
+    video_attach.add_argument("--coverage", default="legacy_unknown", help="evidence coverage")
+    video_attach.add_argument("--modality", default="legacy_unknown", help="evidence modality")
+    video_attach.add_argument("--evidence-attestation", default="legacy_unknown", help="evidence attestation")
+    video_attach.add_argument("--attestation-manifest", help="operator/provider attestation manifest for deep evidence")
 
     supervisor_parser = subparsers.add_parser("supervisor", help="run bounded maintainer supervisor workflows")
     supervisor_subparsers = supervisor_parser.add_subparsers(dest="supervisor_command")
@@ -641,6 +650,13 @@ def main(argv: list[str] | None = None) -> int:
             parser.exit(2, f"topology video status: {exc}\n")
         print(json_dumps(payload))
         return 0 if payload["ready_for_deep_digest"] else 1
+    if args.command == "video" and args.video_command == "trace":
+        try:
+            payload = video_trace(Path(args.root).expanduser().resolve(), args.source_id)
+        except (VideoWorkflowError, FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video trace: {exc}\n")
+        print(json_dumps(payload))
+        return 0
     if args.command == "video" and args.video_command == "prepare-digest":
         try:
             payload = prepare_video_digest(
@@ -651,7 +667,7 @@ def main(argv: list[str] | None = None) -> int:
         except (VideoWorkflowError, FetchError, ValueError) as exc:
             parser.exit(2, f"topology video prepare-digest: {exc}\n")
         print(json_dumps(payload))
-        return 0 if payload["digest_ready"] else 1
+        return 0 if payload["digest_ready"] or payload.get("locator_digest_allowed") else 1
     if args.command == "video" and args.video_command == "attach-artifact":
         try:
             packet_path = attach_video_artifact(
@@ -661,6 +677,11 @@ def main(argv: list[str] | None = None) -> int:
                 artifact_path=args.artifact_path,
                 note=args.note,
                 track_text=args.track_text,
+                evidence_origin=args.evidence_origin,
+                coverage=args.coverage,
+                modality=args.modality,
+                evidence_attestation=args.evidence_attestation,
+                attestation_manifest=args.attestation_manifest,
             )
         except (FetchError, ValueError) as exc:
             parser.exit(2, f"topology video attach-artifact: {exc}\n")

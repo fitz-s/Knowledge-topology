@@ -76,6 +76,24 @@ VIDEO_PLATFORM_HOSTS = {
 VIDEO_SHORTLINK_HOSTS = {"v.douyin.com", "vm.tiktok.com", "youtu.be", "b23.tv"}
 VIDEO_ARTIFACT_KINDS = {"video_file", "transcript", "key_frames", "audio_summary", "landing_page_metadata"}
 TEXT_VIDEO_ARTIFACT_KINDS = {"transcript", "key_frames", "audio_summary", "landing_page_metadata"}
+VIDEO_EVIDENCE_ORIGINS = {
+    "platform_caption",
+    "audio_transcription",
+    "human_transcript",
+    "frame_extraction",
+    "vision_frame_analysis",
+    "human_frame_notes",
+    "audio_model_summary",
+    "human_audio_summary",
+    "page_visible_excerpt",
+    "page_visible_chapter_list",
+    "inferred_from_page",
+    "public_landing_page_metadata",
+    "legacy_unknown",
+}
+VIDEO_COVERAGE_VALUES = {"full", "partial", "excerpt", "chapter_only", "page_visible_only", "legacy_unknown"}
+VIDEO_MODALITIES = {"audio", "video", "page", "human_note", "metadata", "legacy_unknown"}
+VIDEO_ATTESTATIONS = {"operator_attested", "provider_generated", "page_visible", "legacy_unknown"}
 
 
 def utc_now_iso() -> str:
@@ -88,6 +106,10 @@ def sha256_text(text: str) -> str:
 
 def sha256_bytes(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def first_http_url(value: str) -> str:
@@ -455,9 +477,32 @@ def attach_video_artifact(
     artifact_path: str | Path,
     note: str = "operator captured artifact",
     track_text: bool = False,
+    evidence_origin: str = "legacy_unknown",
+    coverage: str = "legacy_unknown",
+    modality: str = "legacy_unknown",
+    evidence_attestation: str = "legacy_unknown",
+    attestation_manifest: str | Path | None = None,
+    trusted_attestation: bool = False,
 ) -> Path:
     if artifact_kind not in VIDEO_ARTIFACT_KINDS:
         raise FetchError("artifact_kind must be one of: " + ", ".join(sorted(VIDEO_ARTIFACT_KINDS)))
+    if evidence_origin not in VIDEO_EVIDENCE_ORIGINS:
+        raise FetchError("evidence_origin must be one of: " + ", ".join(sorted(VIDEO_EVIDENCE_ORIGINS)))
+    if coverage not in VIDEO_COVERAGE_VALUES:
+        raise FetchError("coverage must be one of: " + ", ".join(sorted(VIDEO_COVERAGE_VALUES)))
+    if modality not in VIDEO_MODALITIES:
+        raise FetchError("modality must be one of: " + ", ".join(sorted(VIDEO_MODALITIES)))
+    if evidence_attestation not in VIDEO_ATTESTATIONS:
+        raise FetchError("evidence_attestation must be one of: " + ", ".join(sorted(VIDEO_ATTESTATIONS)))
+    attestation_hash = validate_video_attestation_manifest(
+        attestation_manifest,
+        artifact_kind=artifact_kind,
+        evidence_origin=evidence_origin,
+        coverage=coverage,
+        modality=modality,
+        evidence_attestation=evidence_attestation,
+        trusted_attestation=trusted_attestation,
+    )
     paths = TopologyPaths.from_root(root)
     packet_path, packet = read_packet(paths, source_id)
     if packet.source_type != "video_platform":
@@ -483,6 +528,11 @@ def attach_video_artifact(
             "source_hash_sha256": digest,
             "byte_length": len(data),
             "note": note,
+            "evidence_origin": evidence_origin,
+            "coverage": coverage,
+            "modality": modality,
+            "evidence_attestation": evidence_attestation,
+            **({"attestation_manifest_hash": attestation_hash} if attestation_hash else {}),
         })
     else:
         filename = safe_blob_filename(str(candidate))
@@ -498,6 +548,11 @@ def attach_video_artifact(
             "byte_length": len(data),
             "storage_hint": f"raw/local_blobs/{source_id}/{filename}",
             "note": note,
+            "evidence_origin": evidence_origin,
+            "coverage": coverage,
+            "modality": modality,
+            "evidence_attestation": evidence_attestation,
+            **({"attestation_manifest_hash": attestation_hash} if attestation_hash else {}),
         })
     updated = SourcePacket(
         schema_version=packet.schema_version,
@@ -527,6 +582,50 @@ def attach_video_artifact(
     )
     atomic_write_text(packet_path, json.dumps(updated.to_dict(), indent=2, sort_keys=True) + "\n")
     return packet_path
+
+
+def validate_video_attestation_manifest(
+    manifest_path: str | Path | None,
+    *,
+    artifact_kind: str,
+    evidence_origin: str,
+    coverage: str,
+    modality: str,
+    evidence_attestation: str,
+    trusted_attestation: bool,
+) -> str | None:
+    if evidence_attestation in {"operator_attested", "provider_generated"} and not trusted_attestation:
+        raise FetchError("deep video evidence requires a trusted provider/operator attestation path")
+    if evidence_attestation in {"operator_attested", "provider_generated"} and manifest_path is None:
+        raise FetchError("deep video evidence requires --attestation-manifest")
+    if manifest_path is None:
+        return None
+    path = Path(manifest_path).expanduser()
+    if path.is_symlink() or not path.is_file():
+        raise FetchError("attestation_manifest must be a regular non-symlink file")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise FetchError(f"attestation_manifest JSON is invalid: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise FetchError("attestation_manifest must be a JSON object")
+    expected = {
+        "schema_version": "1.0",
+        "artifact_kind": artifact_kind,
+        "evidence_origin": evidence_origin,
+        "coverage": coverage,
+        "modality": modality,
+        "evidence_attestation": evidence_attestation,
+    }
+    for key, value in expected.items():
+        if payload.get(key) != value:
+            raise FetchError(f"attestation_manifest {key} mismatch")
+    attested_by = payload.get("attested_by")
+    if evidence_attestation == "operator_attested" and attested_by != "operator":
+        raise FetchError("operator_attested manifest requires attested_by=operator")
+    if evidence_attestation == "provider_generated" and attested_by != "provider":
+        raise FetchError("provider_generated manifest requires attested_by=provider")
+    return sha256_file(path)
 
 
 def parse_github_artifact(value: str) -> dict[str, Any]:

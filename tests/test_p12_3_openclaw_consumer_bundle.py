@@ -92,6 +92,11 @@ class P12OpenClawConsumerBundleTests(unittest.TestCase):
                 ".openclaw/topology/issue-lease.sh",
                 ".openclaw/topology/lease.sh",
                 ".openclaw/topology/run-writeback.sh",
+                ".openclaw/topology/video-ingest.sh",
+                ".openclaw/topology/video-status.sh",
+                ".openclaw/topology/video-attach-artifact.sh",
+                ".openclaw/topology/video-prepare-digest.sh",
+                ".openclaw/topology/video-trace.sh",
             ]:
                 path = workspace / relative
                 self.assertTrue(path.exists(), relative)
@@ -131,6 +136,10 @@ class P12OpenClawConsumerBundleTests(unittest.TestCase):
             self.assertIn("run-writeback.sh", session)
             self.assertIn("source_id", session)
             self.assertIn("digest_id", session)
+            video_skill = (workspace / ".openclaw/topology/skills/video-source-intake.md").read_text(encoding="utf-8")
+            self.assertIn("No `dg_` path means no digest", video_skill)
+            self.assertIn("Page-visible title", video_skill)
+            self.assertIn("Do not label page-visible text as transcript", video_skill)
 
     def test_openclaw_compose_doctor_and_capture_wrappers_run(self):
         tmp, topology, subject, workspace = self.make_roots()
@@ -167,6 +176,70 @@ class P12OpenClawConsumerBundleTests(unittest.TestCase):
             self.assertEqual(capture.returncode, 0, capture.stderr)
             self.assertIn("created OpenClaw runtime source packet", capture.stdout)
             self.assertFalse((workspace / "canonical").exists())
+
+    def test_openclaw_video_ingest_wrapper_injects_resolved_context(self):
+        tmp, topology, subject, workspace = self.make_roots()
+        with tmp:
+            ingest = subprocess.run(
+                [
+                    str(workspace / ".openclaw/topology/video-ingest.sh"),
+                    "https://v.douyin.com/6l8q1jGwRl4/",
+                    "--note",
+                    "video note",
+                ],
+                cwd=workspace,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(ingest.returncode, 0, ingest.stderr)
+            self.assertIn("created video source packet", ingest.stdout)
+            packet = next((topology / "raw/packets").glob("src_*/packet.json"))
+            payload = json.loads(packet.read_text(encoding="utf-8"))
+            self.assertEqual(payload["source_type"], "video_platform")
+
+    def test_openclaw_video_attach_wrapper_cannot_self_attest_deep_evidence(self):
+        tmp, topology, subject, workspace = self.make_roots()
+        with tmp:
+            ingest = subprocess.run(
+                [
+                    str(workspace / ".openclaw/topology/video-ingest.sh"),
+                    "https://v.douyin.com/6l8q1jGwRl4/",
+                    "--note",
+                    "video note",
+                ],
+                cwd=workspace,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(ingest.returncode, 0, ingest.stderr)
+            source_id = json.loads(next((topology / "raw/packets").glob("src_*/packet.json")).read_text(encoding="utf-8"))["id"]
+            transcript = workspace / "transcript.txt"
+            transcript.write_text("operator words\n", encoding="utf-8")
+            attach = subprocess.run(
+                [
+                    str(workspace / ".openclaw/topology/video-attach-artifact.sh"),
+                    "--source-id",
+                    source_id,
+                    "--artifact-kind",
+                    "transcript",
+                    "--artifact-path",
+                    str(transcript),
+                    "--track-text",
+                    "--evidence-attestation",
+                    "operator_attested",
+                ],
+                cwd=workspace,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertNotEqual(attach.returncode, 0)
+            self.assertIn("cannot create operator/provider-attested", attach.stderr)
 
     def test_openclaw_private_summary_rejected_before_packet_or_lease_writes(self):
         tmp, topology, subject, workspace = self.make_roots()

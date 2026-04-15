@@ -42,6 +42,7 @@ contract.
 | P12.3 OpenClaw Consumer Bundle | waived_by_user | `docs/package-plans/P12_3_OPENCLAW_CONSUMER_BUNDLE.md` | `docs/package-reviews/P12_3_UNFREEZE.md` |
 | P12.4 Maintainer Supervisor | waived_by_user | `docs/package-plans/P12_4_MAINTAINER_SUPERVISOR.md` | `docs/package-reviews/P12_4_UNFREEZE.md` |
 | P12.5 Evaluation / Benchmark | approved | `docs/package-plans/P12_5_EVALUATION_BENCHMARK.md` | `docs/package-reviews/P12_5_UNFREEZE.md` |
+| P13.0 Video Evidence Discipline | approved | `docs/package-plans/P13_0_VIDEO_EVIDENCE_DISCIPLINE.md` | `docs/package-reviews/P13_0_UNFREEZE.md` |
 
 ## Shipped CLI Reality
 
@@ -96,6 +97,7 @@ Shipped video subcommands:
 
 - `topology video ingest`
 - `topology video status`
+- `topology video trace`
 - `topology video prepare-digest`
 - `topology video attach-artifact`
 
@@ -141,6 +143,10 @@ Shipped after P11.7:
 - `topology video attach-artifact` binds downloaded local videos, transcripts,
   key-frame descriptions, audio summaries, or landing metadata back to the
   source packet through public-safe metadata and local-only blobs.
+- P13.0 makes video deep digest readiness semantic. Page-visible excerpts,
+  page-visible chapter lists, inferred page summaries, legacy unknown
+  artifacts, and ordinary agent/CLI self-attestation do not satisfy transcript,
+  key-frame, or audio-summary evidence.
 
 ## OpenClaw Consumer Bundle
 
