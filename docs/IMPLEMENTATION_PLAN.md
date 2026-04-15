@@ -438,6 +438,9 @@ Video evidence commands:
   packet. P13.0 requires video text artifacts to declare evidence origin,
   coverage, and modality; page-visible or inferred artifacts are shallow-only
   and cannot satisfy deep digest readiness.
+- `topology video provider-run`: process a topology-staged trusted provider
+  bundle and attach deep-ready video evidence. Ordinary CLI and OpenClaw wrappers
+  cannot self-attest trusted video evidence.
 
 Consumer bootstrap commands:
 

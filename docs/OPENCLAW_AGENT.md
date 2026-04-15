@@ -99,7 +99,16 @@ Run:
 ```
 
 If `ready_for_deep_digest` is false, stop and report the missing evidence. Do
-not produce a content-level digest.
+not produce a content-level digest. If trusted provider output may already be
+staged, run:
+
+```bash
+.openclaw/topology/video-provider-run.sh --source-id <src_...>
+```
+
+The provider-run wrapper processes topology-staged trusted bundles only. It
+does not accept arbitrary artifact directories or attestation flags from you.
+If provider-run fails, report the blocker and stop.
 
 ### What Counts As Deep Video Evidence
 

@@ -96,6 +96,17 @@ frames, or audio summary for deep digest readiness.
 
 No `dg_` path means no digest. No `mut_` path means no proposal.
 
+If `video-trace.sh` reports `shallow_evidence`, OpenClaw's next valid action is
+to run:
+
+```bash
+.openclaw/topology/video-provider-run.sh --source-id "<src_...>"
+```
+
+This wrapper processes topology-staged trusted provider output only. It does
+not accept artifact directories, attestation manifests, or trusted flags from
+the agent. If no staged trusted bundle exists, report the blocker and stop.
+
 ## Runtime Projection
 
 Generate the local-only projection with:

@@ -13,6 +13,7 @@ from knowledge_topology.schema.source_packet import SourcePacket
 from knowledge_topology.storage.spool import create_job
 from knowledge_topology.storage.transaction import atomic_write_text
 from knowledge_topology.workers.fetch import FetchError
+from knowledge_topology.workers.fetch import sha256_bytes, sha256_text
 from knowledge_topology.workers.fetch import TEXT_VIDEO_ARTIFACT_KINDS
 from knowledge_topology.workers.fetch import build_source_packet
 from knowledge_topology.workers.fetch import read_packet
@@ -131,6 +132,8 @@ def video_artifact_deep_ready(artifact_kind: str, artifact: dict[str, Any]) -> b
         return False
     if modality == "page" or modality == "legacy_unknown":
         return False
+    if not artifact_hashes_match(artifact):
+        return False
     return True
 
 
@@ -146,6 +149,11 @@ def video_text_deep_ready(packet_dir: Path, artifact_kind: str, artifact: dict[s
     if not isinstance(path, str):
         return False
     target = packet_dir / path
+    current_hash = sha256_text(target.read_text(encoding="utf-8", errors="replace").rstrip("\n"))
+    if artifact.get("hash_sha256") != current_hash:
+        return False
+    if not attestation_manifest_valid(packet_dir, artifact_kind, artifact):
+        return False
     return not text_contains_shallow_markers(target.read_text(encoding="utf-8", errors="replace"))
 
 
@@ -162,6 +170,8 @@ def shallow_artifact_reason(packet_dir: Path, artifact_kind: str, artifact: dict
         return f"{origin} requires operator_attested attestation"
     if attestation in {"operator_attested", "provider_generated"} and not isinstance(artifact.get("attestation_manifest_hash"), str):
         return f"{artifact_kind} requires external attestation manifest"
+    if not artifact_hashes_match(artifact):
+        return f"{artifact_kind} artifact hash metadata is inconsistent"
     if coverage in {"page_visible_only", "chapter_only", "legacy_unknown"}:
         return f"{coverage} coverage cannot satisfy {artifact_kind} evidence"
     if modality in {"page", "legacy_unknown"}:
@@ -169,9 +179,58 @@ def shallow_artifact_reason(packet_dir: Path, artifact_kind: str, artifact: dict
     path = artifact.get("path")
     if isinstance(path, str):
         target = packet_dir / path
+        if not attestation_manifest_valid(packet_dir, artifact_kind, artifact):
+            return f"{artifact_kind} attestation manifest is missing or invalid"
         if target.exists() and not target.is_symlink() and text_contains_shallow_markers(target.read_text(encoding="utf-8", errors="replace")):
             return f"{artifact_kind} text contains page-visible or inferred-content markers"
+        if target.exists() and not target.is_symlink() and artifact.get("hash_sha256") != sha256_text(target.read_text(encoding="utf-8", errors="replace").rstrip("\n")):
+            return f"{artifact_kind} current file hash does not match artifact record"
     return f"{artifact_kind} artifact lacks accepted deep evidence provenance"
+
+
+def attestation_manifest_valid(packet_dir: Path, artifact_kind: str, artifact: dict[str, Any]) -> bool:
+    manifest_path = artifact.get("attestation_manifest_path")
+    manifest_hash = artifact.get("attestation_manifest_hash")
+    if not isinstance(manifest_path, str) or not isinstance(manifest_hash, str):
+        return False
+    rel = Path(manifest_path)
+    if rel.is_absolute() or ".." in rel.parts:
+        return False
+    root = packet_dir.parents[2]
+    path = root / rel
+    if path.is_symlink() or not path.is_file():
+        return False
+    if sha256_bytes(path.read_bytes()) != manifest_hash:
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    expected = {
+        "source_id": packet_dir.name,
+        "artifact_kind": artifact_kind,
+        "evidence_origin": artifact.get("evidence_origin"),
+        "coverage": artifact.get("coverage"),
+        "modality": artifact.get("modality"),
+        "evidence_attestation": artifact.get("evidence_attestation"),
+        "output_hash_sha256": artifact.get("hash_sha256"),
+    }
+    for key, value in expected.items():
+        if payload.get(key) != value:
+            return False
+    return isinstance(payload.get("input_refs"), list)
+
+
+def artifact_hashes_match(artifact: dict[str, Any]) -> bool:
+    value = artifact.get("hash_sha256")
+    source_value = artifact.get("source_hash_sha256")
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        return False
+    if not isinstance(source_value, str) or not source_value.startswith("sha256:"):
+        return False
+    return True
 
 
 def video_text_artifact_readable(packet_dir: Path, artifact: dict[str, Any]) -> bool:

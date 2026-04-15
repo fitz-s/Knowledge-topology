@@ -43,6 +43,7 @@ contract.
 | P12.4 Maintainer Supervisor | waived_by_user | `docs/package-plans/P12_4_MAINTAINER_SUPERVISOR.md` | `docs/package-reviews/P12_4_UNFREEZE.md` |
 | P12.5 Evaluation / Benchmark | approved | `docs/package-plans/P12_5_EVALUATION_BENCHMARK.md` | `docs/package-reviews/P12_5_UNFREEZE.md` |
 | P13.0 Video Evidence Discipline | approved | `docs/package-plans/P13_0_VIDEO_EVIDENCE_DISCIPLINE.md` | `docs/package-reviews/P13_0_UNFREEZE.md` |
+| P13.1 Trusted Video Provider | approved | `docs/package-plans/P13_1_TRUSTED_VIDEO_PROVIDER.md` | `docs/package-reviews/P13_1_UNFREEZE.md` |
 
 ## Shipped CLI Reality
 
@@ -98,6 +99,7 @@ Shipped video subcommands:
 - `topology video ingest`
 - `topology video status`
 - `topology video trace`
+- `topology video provider-run`
 - `topology video prepare-digest`
 - `topology video attach-artifact`
 

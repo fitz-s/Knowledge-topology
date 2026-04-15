@@ -42,6 +42,7 @@ from knowledge_topology.workers.video import prepare_digest as prepare_video_dig
 from knowledge_topology.workers.video import video_ingest
 from knowledge_topology.workers.video import video_status
 from knowledge_topology.workers.video import video_trace
+from knowledge_topology.workers.video_provider import VideoProviderError, run_video_provider
 from knowledge_topology.workers.writeback import WritebackError, writeback_session
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
 from knowledge_topology.workers.fetch import FetchError, attach_video_artifact, ingest_source
@@ -249,6 +250,15 @@ def build_parser() -> argparse.ArgumentParser:
     video_attach.add_argument("--modality", default="legacy_unknown", help="evidence modality")
     video_attach.add_argument("--evidence-attestation", default="legacy_unknown", help="evidence attestation")
     video_attach.add_argument("--attestation-manifest", help="operator/provider attestation manifest for deep evidence")
+    video_provider = video_subparsers.add_parser("provider-run", help="run trusted staged video provider output")
+    video_provider.add_argument("--root", default=".", help="topology root")
+    video_provider.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_provider.add_argument("--provider", choices=["staged-bundle"], default="staged-bundle", help="trusted provider bridge")
+    video_provider.add_argument("--auto-digest", action="store_true", help="enqueue digest after deep-ready evidence")
+    video_provider.add_argument("--subject", dest="subject_repo_id", help="subject repo id for --auto-digest")
+    video_provider.add_argument("--subject-head-sha", help="subject HEAD SHA for --auto-digest")
+    video_provider.add_argument("--base-canonical-rev", help="base canonical revision for --auto-digest")
+    video_provider.add_argument("--audience", choices=["builders", "openclaw", "all"], default="all", help="digest audience")
 
     supervisor_parser = subparsers.add_parser("supervisor", help="run bounded maintainer supervisor workflows")
     supervisor_subparsers = supervisor_parser.add_subparsers(dest="supervisor_command")
@@ -686,6 +696,22 @@ def main(argv: list[str] | None = None) -> int:
         except (FetchError, ValueError) as exc:
             parser.exit(2, f"topology video attach-artifact: {exc}\n")
         print(f"updated video source packet: {packet_path}")
+        return 0
+    if args.command == "video" and args.video_command == "provider-run":
+        try:
+            result = run_video_provider(
+                Path(args.root).expanduser().resolve(),
+                source_id=args.source_id,
+                provider=args.provider,
+                auto_digest=args.auto_digest,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+                base_canonical_rev=args.base_canonical_rev,
+                audience=args.audience,
+            )
+        except (VideoProviderError, FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video provider-run: {exc}\n")
+        print(json_dumps(result.payload))
         return 0
     if args.command == "supervisor" and args.supervisor_command == "run":
         try:

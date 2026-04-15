@@ -7,12 +7,61 @@ import time
 import unittest
 from pathlib import Path
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from knowledge_topology.workers.init import init_topology
+from knowledge_topology.workers.video_provider import stage_trusted_video_bundle
+
+
+PRIVATE_KEY = Ed25519PrivateKey.generate()
+PRIVATE_KEY_HEX = PRIVATE_KEY.private_bytes(
+    encoding=serialization.Encoding.Raw,
+    format=serialization.PrivateFormat.Raw,
+    encryption_algorithm=serialization.NoEncryption(),
+).hex()
+PUBLIC_KEY_HEX = PRIVATE_KEY.public_key().public_bytes(
+    encoding=serialization.Encoding.Raw,
+    format=serialization.PublicFormat.Raw,
+).hex()
+PROVIDER_KEY_ID = "openclaw-test-provider"
+
+
+def provider_root(workspace: Path) -> Path:
+    directory = workspace.parent / "trusted-provider-root"
+    directory.mkdir(exist_ok=True)
+    return directory
+
+
+def provider_env(workspace: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env["KNOWLEDGE_TOPOLOGY_VIDEO_PROVIDER_ROOT"] = str(provider_root(workspace))
+    return env
+
+
+def write_key_registry(topology: Path) -> None:
+    directory = topology / "ops/keys"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "video_provider_public_keys.json").write_text(
+        json.dumps({
+            "schema_version": "1.0",
+            "keys": [
+                {
+                    "key_id": PROVIDER_KEY_ID,
+                    "algorithm": "ed25519",
+                    "public_key": PUBLIC_KEY_HEX,
+                }
+            ],
+        }),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "ops/keys/video_provider_public_keys.json"], cwd=topology, check=True)
+    subprocess.run(["git", "commit", "-m", "register video provider key"], cwd=topology, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
 
 
 def init_git(path: Path) -> str:
@@ -98,6 +147,7 @@ class P12OpenClawConsumerBundleTests(unittest.TestCase):
                 ".openclaw/topology/video-ingest.sh",
                 ".openclaw/topology/video-status.sh",
                 ".openclaw/topology/video-attach-artifact.sh",
+                ".openclaw/topology/video-provider-run.sh",
                 ".openclaw/topology/video-prepare-digest.sh",
                 ".openclaw/topology/video-trace.sh",
             ]:
@@ -111,6 +161,7 @@ class P12OpenClawConsumerBundleTests(unittest.TestCase):
             self.assertIn("Chat summaries are not topology ingestion", agents_md)
             tool_md = (workspace / "TOPOLOGY_TOOL.md").read_text(encoding="utf-8")
             self.assertIn(".openclaw/topology/video-ingest.sh", tool_md)
+            self.assertIn(".openclaw/topology/video-provider-run.sh", tool_md)
             self.assertIn("Stage:", tool_md)
             qmd = (workspace / ".openclaw/topology/qmd-extra-paths.txt").read_text(encoding="utf-8")
             allowed = [
@@ -251,6 +302,88 @@ class P12OpenClawConsumerBundleTests(unittest.TestCase):
             )
             self.assertNotEqual(attach.returncode, 0)
             self.assertIn("cannot create operator/provider-attested", attach.stderr)
+
+    def test_openclaw_video_provider_run_wrapper_processes_staged_bundle(self):
+        tmp, topology, subject, workspace = self.make_roots()
+        with tmp:
+            ingest = subprocess.run(
+                [
+                    str(workspace / ".openclaw/topology/video-ingest.sh"),
+                    "https://v.douyin.com/6l8q1jGwRl4/",
+                    "--note",
+                    "video note",
+                ],
+                cwd=workspace,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(ingest.returncode, 0, ingest.stderr)
+            source_id = json.loads(next((topology / "raw/packets").glob("src_*/packet.json")).read_text(encoding="utf-8"))["id"]
+            write_key_registry(topology)
+            fixture = workspace / "provider-fixture"
+            fixture.mkdir()
+            (fixture / "transcript.md").write_text("[00:00] transcript from audio\n", encoding="utf-8")
+            (fixture / "key_frames.md").write_text("Frame 1: real visual observation\n", encoding="utf-8")
+            (fixture / "audio_summary.md").write_text("Audio-derived summary of the argument\n", encoding="utf-8")
+            stage_trusted_video_bundle(
+                topology,
+                source_id=source_id,
+                artifact_dir=fixture,
+                provider_root=provider_root(workspace),
+                signing_private_key=PRIVATE_KEY_HEX,
+                provider_key_id=PROVIDER_KEY_ID,
+            )
+            provider = subprocess.run(
+                [str(workspace / ".openclaw/topology/video-provider-run.sh"), "--source-id", source_id],
+                cwd=workspace,
+                env=provider_env(workspace),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(provider.returncode, 0, provider.stderr)
+            self.assertNotIn(str(topology), provider.stdout)
+            status = subprocess.run(
+                [str(workspace / ".openclaw/topology/video-status.sh"), "--source-id", source_id],
+                cwd=workspace,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(status.returncode, 0, status.stderr)
+            self.assertTrue(json.loads(status.stdout)["ready_for_deep_digest"])
+            trace = subprocess.run(
+                [str(workspace / ".openclaw/topology/video-trace.sh"), "--source-id", source_id],
+                cwd=workspace,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(json.loads(trace.stdout)["stage"], "deep_ready")
+
+    def test_openclaw_video_provider_run_wrapper_rejects_trusted_flags(self):
+        tmp, topology, subject, workspace = self.make_roots()
+        with tmp:
+            provider = subprocess.run(
+                [
+                    str(workspace / ".openclaw/topology/video-provider-run.sh"),
+                    "--source-id",
+                    "src_01KP0000000000000000000000",
+                    "--trusted-attestation",
+                ],
+                cwd=workspace,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertNotEqual(provider.returncode, 0)
+            self.assertIn("cannot supply trusted artifacts", provider.stderr)
 
     def test_openclaw_private_summary_rejected_before_packet_or_lease_writes(self):
         tmp, topology, subject, workspace = self.make_roots()

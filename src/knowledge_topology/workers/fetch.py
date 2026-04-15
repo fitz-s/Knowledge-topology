@@ -494,15 +494,7 @@ def attach_video_artifact(
         raise FetchError("modality must be one of: " + ", ".join(sorted(VIDEO_MODALITIES)))
     if evidence_attestation not in VIDEO_ATTESTATIONS:
         raise FetchError("evidence_attestation must be one of: " + ", ".join(sorted(VIDEO_ATTESTATIONS)))
-    attestation_hash = validate_video_attestation_manifest(
-        attestation_manifest,
-        artifact_kind=artifact_kind,
-        evidence_origin=evidence_origin,
-        coverage=coverage,
-        modality=modality,
-        evidence_attestation=evidence_attestation,
-        trusted_attestation=trusted_attestation,
-    )
+    attestation_manifest_path = None
     paths = TopologyPaths.from_root(root)
     packet_path, packet = read_packet(paths, source_id)
     if packet.source_type != "video_platform":
@@ -518,13 +510,27 @@ def attach_video_artifact(
             raise FetchError("track_text is only allowed for transcript, key_frames, audio_summary, or landing_page_metadata")
         text = data.decode("utf-8", errors="replace")
         body = _safe_excerpt(text, EXTERNAL_PUBLIC_TEXT_LIMIT)
+        tracked_hash = sha256_text(body)
+        attestation_hash = validate_video_attestation_manifest(
+            attestation_manifest,
+            source_id=source_id,
+            output_hash_sha256=tracked_hash,
+            artifact_kind=artifact_kind,
+            evidence_origin=evidence_origin,
+            coverage=coverage,
+            modality=modality,
+            evidence_attestation=evidence_attestation,
+            trusted_attestation=trusted_attestation,
+        )
+        if attestation_manifest:
+            attestation_manifest_path = str(Path(attestation_manifest).expanduser().resolve().relative_to(paths.root))
         relative = f"{artifact_kind}.md"
         atomic_write_text(packet_path.parent / relative, body + "\n")
         artifacts.append({
             "kind": "video_text_artifact",
             "artifact_kind": artifact_kind,
             "path": relative,
-            "hash_sha256": sha256_text(body),
+            "hash_sha256": tracked_hash,
             "source_hash_sha256": digest,
             "byte_length": len(data),
             "note": note,
@@ -533,8 +539,22 @@ def attach_video_artifact(
             "modality": modality,
             "evidence_attestation": evidence_attestation,
             **({"attestation_manifest_hash": attestation_hash} if attestation_hash else {}),
+            **({"attestation_manifest_path": attestation_manifest_path} if attestation_manifest_path else {}),
         })
     else:
+        attestation_hash = validate_video_attestation_manifest(
+            attestation_manifest,
+            source_id=source_id,
+            output_hash_sha256=digest,
+            artifact_kind=artifact_kind,
+            evidence_origin=evidence_origin,
+            coverage=coverage,
+            modality=modality,
+            evidence_attestation=evidence_attestation,
+            trusted_attestation=trusted_attestation,
+        )
+        if attestation_manifest:
+            attestation_manifest_path = str(Path(attestation_manifest).expanduser().resolve().relative_to(paths.root))
         filename = safe_blob_filename(str(candidate))
         storage_dir = paths.ensure_dir(f"raw/local_blobs/{source_id}")
         storage_path = storage_dir / filename
@@ -553,6 +573,7 @@ def attach_video_artifact(
             "modality": modality,
             "evidence_attestation": evidence_attestation,
             **({"attestation_manifest_hash": attestation_hash} if attestation_hash else {}),
+            **({"attestation_manifest_path": attestation_manifest_path} if attestation_manifest_path else {}),
         })
     updated = SourcePacket(
         schema_version=packet.schema_version,
@@ -587,6 +608,8 @@ def attach_video_artifact(
 def validate_video_attestation_manifest(
     manifest_path: str | Path | None,
     *,
+    source_id: str,
+    output_hash_sha256: str,
     artifact_kind: str,
     evidence_origin: str,
     coverage: str,
@@ -611,11 +634,13 @@ def validate_video_attestation_manifest(
         raise FetchError("attestation_manifest must be a JSON object")
     expected = {
         "schema_version": "1.0",
+        "source_id": source_id,
         "artifact_kind": artifact_kind,
         "evidence_origin": evidence_origin,
         "coverage": coverage,
         "modality": modality,
         "evidence_attestation": evidence_attestation,
+        "output_hash_sha256": output_hash_sha256,
     }
     for key, value in expected.items():
         if payload.get(key) != value:

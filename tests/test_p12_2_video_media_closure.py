@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-from knowledge_topology.workers.fetch import FetchError, attach_video_artifact
+from knowledge_topology.workers.fetch import EXTERNAL_PUBLIC_TEXT_LIMIT, FetchError, _safe_excerpt, attach_video_artifact, sha256_text
 from knowledge_topology.workers.digest import DigestWorkerError, build_digest_model_request
 from knowledge_topology.workers.init import init_topology
 from knowledge_topology.workers.video import video_status
@@ -59,16 +59,19 @@ def video_ingest(root: Path, url: str = "https://v.douyin.com/6l8q1jGwRl4/", *, 
     return json.loads(packet_path.read_text(encoding="utf-8"))["id"], payload
 
 
-def write_attestation(root: Path, kind: str, provenance: tuple[str, str, str, str]) -> Path:
+def write_attestation(root: Path, source_id: str, kind: str, artifact_path: Path, provenance: tuple[str, str, str, str]) -> Path:
     path = root / f"{kind}_attestation.json"
     path.write_text(
         json.dumps({
             "schema_version": "1.0",
+            "source_id": source_id,
             "artifact_kind": kind,
             "evidence_origin": provenance[0],
             "coverage": provenance[1],
             "modality": provenance[2],
             "evidence_attestation": provenance[3],
+            "output_hash_sha256": sha256_text(_safe_excerpt(artifact_path.read_text(encoding="utf-8"), EXTERNAL_PUBLIC_TEXT_LIMIT)),
+            "input_refs": [{"kind": "test_fixture", "hash_sha256": sha256_text(artifact_path.read_text(encoding="utf-8"))}],
             "attested_by": "operator" if provenance[3] == "operator_attested" else "provider",
         }),
         encoding="utf-8",
@@ -138,7 +141,7 @@ class P12VideoMediaClosureTests(unittest.TestCase):
                     coverage=provenance[1],
                     modality=provenance[2],
                     evidence_attestation=provenance[3],
-                    attestation_manifest=write_attestation(root, kind, provenance),
+                    attestation_manifest=write_attestation(root, source_id, kind, path, provenance),
                     trusted_attestation=True,
                 )
             status = cli("video", "status", "--root", str(root), "--source-id", source_id)
@@ -239,7 +242,7 @@ class P12VideoMediaClosureTests(unittest.TestCase):
                         coverage=values[1],
                         modality=values[2],
                         evidence_attestation=values[3],
-                        attestation_manifest=write_attestation(root, kind, values[:4]),
+                        attestation_manifest=write_attestation(root, source_id, kind, path, values[:4]),
                     )
             status = video_status(root, source_id)
             self.assertFalse(status["ready_for_deep_digest"])

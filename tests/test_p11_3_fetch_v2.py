@@ -15,12 +15,14 @@ from knowledge_topology.workers.digest import DigestWorkerError
 from knowledge_topology.workers.fetch import EXTERNAL_PUBLIC_TEXT_LIMIT
 from knowledge_topology.workers.fetch import FetchError
 from knowledge_topology.workers.fetch import FetchResponse
+from knowledge_topology.workers.fetch import _safe_excerpt
 from knowledge_topology.workers.fetch import attach_video_artifact
 from knowledge_topology.workers.fetch import classify_source
 from knowledge_topology.workers.fetch import ingest_source
 from knowledge_topology.workers.fetch import parse_video_platform
 from knowledge_topology.workers.fetch import parse_github_artifact
 from knowledge_topology.workers.fetch import validate_fetch_url
+from knowledge_topology.workers.fetch import sha256_text
 from knowledge_topology.workers.init import init_topology
 
 
@@ -54,16 +56,19 @@ def ingest(root: Path, value: str, **kwargs):
     )
 
 
-def write_attestation(root: Path, kind: str, provenance: tuple[str, str, str, str]) -> Path:
+def write_attestation(root: Path, source_id: str, kind: str, artifact_path: Path, provenance: tuple[str, str, str, str]) -> Path:
     path = root / f"{kind}_attestation.json"
     path.write_text(
         json.dumps({
             "schema_version": "1.0",
+            "source_id": source_id,
             "artifact_kind": kind,
             "evidence_origin": provenance[0],
             "coverage": provenance[1],
             "modality": provenance[2],
             "evidence_attestation": provenance[3],
+            "output_hash_sha256": sha256_text(_safe_excerpt(artifact_path.read_text(encoding="utf-8"), EXTERNAL_PUBLIC_TEXT_LIMIT)),
+            "input_refs": [{"kind": "test_fixture", "hash_sha256": sha256_text(artifact_path.read_text(encoding="utf-8"))}],
             "attested_by": "operator",
         }),
         encoding="utf-8",
@@ -460,7 +465,7 @@ class P11FetchV2Tests(unittest.TestCase):
                     coverage=provenance[1],
                     modality=provenance[2],
                     evidence_attestation=provenance[3],
-                    attestation_manifest=write_attestation(root, kind, provenance),
+                    attestation_manifest=write_attestation(root, source_id, kind, path, provenance),
                     trusted_attestation=True,
                 )
             request = build_digest_model_request(root, source_id)

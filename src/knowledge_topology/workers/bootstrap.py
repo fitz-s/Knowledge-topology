@@ -519,6 +519,37 @@ cmd = [
 raise SystemExit(subprocess.call(cmd))
 PY
 """
+    if command == "provider-run":
+        return f"""#!/usr/bin/env bash
+set -euo pipefail
+for arg in "$@"; do
+  case "$arg" in
+    --trusted-attestation|--trusted-attestation=*|--artifact-dir|--artifact-dir=*|--evidence-attestation|--evidence-attestation=*|--attestation-manifest|--attestation-manifest=*)
+      echo "OpenClaw video provider wrapper cannot supply trusted artifacts or attestation flags" >&2
+      exit 2
+      ;;
+  esac
+done
+TOPOLOGY_ROOT={topology_literal}
+DEFAULT_SUBJECT_ROOT={subject_literal}
+export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
+SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
+CTX="$(python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
+export CTX
+python3 - "$@" <<'PY'
+import json, os, subprocess, sys
+ctx = json.loads(os.environ["CTX"])
+cmd = [
+    sys.executable, "-m", "knowledge_topology.cli", "video", "provider-run",
+    *sys.argv[1:],
+    "--root", ctx["topology_root"],
+    "--subject", ctx["subject_repo_id"],
+    "--subject-head-sha", ctx["subject_head_sha"],
+    "--base-canonical-rev", ctx["canonical_rev"],
+]
+raise SystemExit(subprocess.call(cmd))
+PY
+"""
     if command == "attach-artifact":
         return f"""#!/usr/bin/env bash
 set -euo pipefail
@@ -598,18 +629,20 @@ intake, video intake, or durable memory questions from chat-only reasoning.
 .openclaw/topology/video-trace.sh --source-id <src_...>
 ```
 
-If `ready_for_deep_digest` is false, stop and report missing evidence. Do not
-produce a content-level digest.
+If `ready_for_deep_digest` is false, run the trusted provider bridge or stop
+and report missing evidence. Do not produce a content-level digest.
 
 The default OpenClaw attach wrapper cannot create operator/provider-attested
 deep evidence:
 
 ```bash
-.openclaw/topology/video-attach-artifact.sh ...
+.openclaw/topology/video-provider-run.sh --source-id <src_...>
 ```
 
-It is for shallow/local staging only. Deep video evidence must come through a
-trusted provider/operator path, not self-attested agent labels.
+`video-provider-run.sh` processes only topology-staged trusted provider bundles.
+It does not accept `--artifact-dir`, `--trusted-attestation`, or manifest flags
+from the agent. If provider-run fails, report the blocker; do not summarize
+manually.
 
 ## Writeback Workflow
 
@@ -651,7 +684,7 @@ def merge_openclaw_agents_md(existing: str | None = None) -> str:
         "`.openclaw/topology/` wrappers for source intake, video intake,",
         "runtime writeback, and topology projection checks.",
         "",
-        "Read `TOPOLOGY_TOOL.md` before handling links, videos, source",
+    "Read `TOPOLOGY_TOOL.md` before handling links, videos, source",
         "learning, runtime memory, or writeback.",
         "",
         "Hard gates:",
@@ -662,6 +695,7 @@ def merge_openclaw_agents_md(existing: str | None = None) -> str:
         "- Chat summaries are not topology ingestion.",
         "- Video title/description/chapter list is not transcript/key frames/audio summary.",
         "- The default OpenClaw video attach wrapper cannot self-attest deep evidence.",
+        "- After shallow video evidence, run `video-provider-run.sh` or stop.",
         "",
         OPENCLAW_AGENTS_END,
         "",
@@ -803,8 +837,11 @@ Required workflow:
    The default OpenClaw attach wrapper cannot create operator/provider-attested
    deep evidence. Use it only for shallow/local staging unless an external
    operator or provider manifest is supplied through a non-default trusted path.
-5. Run `.openclaw/topology/video-prepare-digest.sh --source-id <src_...>`.
-6. Only after digest/reconcile artifacts exist may you claim the video entered
+5. If the source remains shallow, run `.openclaw/topology/video-provider-run.sh
+   --source-id <src_...>` to process already-staged trusted provider output. If
+   provider-run fails, report the blocker and stop. Do not summarize manually.
+6. Run `.openclaw/topology/video-prepare-digest.sh --source-id <src_...>`.
+7. Only after digest/reconcile artifacts exist may you claim the video entered
    the knowledge system. Return the actual `src_`, `dg_`, and `mut_` paths.
 """
     return {
@@ -822,6 +859,7 @@ Required workflow:
         ".openclaw/topology/video-ingest.sh": (openclaw_video_script(topology_root, context["subject_path"], "ingest"), True),
         ".openclaw/topology/video-status.sh": (openclaw_video_script(topology_root, context["subject_path"], "status"), True),
         ".openclaw/topology/video-attach-artifact.sh": (openclaw_video_script(topology_root, context["subject_path"], "attach-artifact"), True),
+        ".openclaw/topology/video-provider-run.sh": (openclaw_video_script(topology_root, context["subject_path"], "provider-run"), True),
         ".openclaw/topology/video-prepare-digest.sh": (openclaw_video_script(topology_root, context["subject_path"], "prepare-digest"), True),
         ".openclaw/topology/video-trace.sh": (openclaw_video_script(topology_root, context["subject_path"], "trace"), True),
         ".openclaw/topology/skills/runtime-consume.md": (runtime_consume, False),
