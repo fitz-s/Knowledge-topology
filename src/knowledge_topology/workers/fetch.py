@@ -10,6 +10,7 @@ import json
 import re
 import socket
 import ssl
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -21,7 +22,7 @@ from knowledge_topology.ids import new_id
 from knowledge_topology.paths import TopologyPaths
 from knowledge_topology.schema.source_packet import FetchChainEntry, SourceArtifact, LocalBlobRef, SourcePacket
 from knowledge_topology.storage.spool import create_job
-from knowledge_topology.storage.transaction import atomic_write_text
+from knowledge_topology.storage.transaction import atomic_write_text, atomic_writer
 
 
 class FetchError(ValueError):
@@ -32,7 +33,7 @@ class FetchError(ValueError):
 class IngestResult:
     packet_id: str
     packet_path: Path
-    digest_job_path: Path
+    digest_job_path: Path | None
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,48 @@ EXTERNAL_PUBLIC_TEXT_LIMIT = 8000
 HTML_FETCH_LIMIT = 1024 * 1024
 PDF_FETCH_LIMIT = 5 * 1024 * 1024
 PINNED_SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
+URL_RE = re.compile(r"https?://[^\s]+")
+VIDEO_PLATFORM_HOSTS = {
+    "douyin.com": "douyin",
+    "v.douyin.com": "douyin",
+    "www.douyin.com": "douyin",
+    "iesdouyin.com": "douyin",
+    "tiktok.com": "tiktok",
+    "www.tiktok.com": "tiktok",
+    "vm.tiktok.com": "tiktok",
+    "youtube.com": "youtube",
+    "www.youtube.com": "youtube",
+    "m.youtube.com": "youtube",
+    "youtu.be": "youtube",
+    "bilibili.com": "bilibili",
+    "www.bilibili.com": "bilibili",
+    "b23.tv": "bilibili",
+    "vimeo.com": "vimeo",
+    "www.vimeo.com": "vimeo",
+    "instagram.com": "instagram",
+    "www.instagram.com": "instagram",
+}
+VIDEO_SHORTLINK_HOSTS = {"v.douyin.com", "vm.tiktok.com", "youtu.be", "b23.tv"}
+VIDEO_ARTIFACT_KINDS = {"video_file", "transcript", "key_frames", "audio_summary", "landing_page_metadata"}
+TEXT_VIDEO_ARTIFACT_KINDS = {"transcript", "key_frames", "audio_summary", "landing_page_metadata"}
+VIDEO_EVIDENCE_ORIGINS = {
+    "platform_caption",
+    "audio_transcription",
+    "human_transcript",
+    "frame_extraction",
+    "vision_frame_analysis",
+    "human_frame_notes",
+    "audio_model_summary",
+    "human_audio_summary",
+    "page_visible_excerpt",
+    "page_visible_chapter_list",
+    "inferred_from_page",
+    "public_landing_page_metadata",
+    "legacy_unknown",
+}
+VIDEO_COVERAGE_VALUES = {"full", "partial", "excerpt", "chapter_only", "page_visible_only", "legacy_unknown"}
+VIDEO_MODALITIES = {"audio", "video", "page", "human_note", "metadata", "legacy_unknown"}
+VIDEO_ATTESTATIONS = {"operator_attested", "provider_generated", "page_visible", "legacy_unknown"}
 
 
 def utc_now_iso() -> str:
@@ -63,6 +106,27 @@ def sha256_text(text: str) -> str:
 
 def sha256_bytes(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def first_http_url(value: str) -> str:
+    match = URL_RE.search(value.strip())
+    if match:
+        return match.group(0)
+    return value
+
+
+def video_platform_for_host(host: str) -> str | None:
+    normalized = host.lower().removeprefix("m.")
+    if normalized in VIDEO_PLATFORM_HOSTS:
+        return VIDEO_PLATFORM_HOSTS[normalized]
+    for suffix, platform in VIDEO_PLATFORM_HOSTS.items():
+        if normalized.endswith("." + suffix):
+            return platform
+    return None
 
 
 def require_preconditions(subject_repo_id: str, subject_head_sha: str, base_canonical_rev: str) -> None:
@@ -78,7 +142,8 @@ def require_preconditions(subject_repo_id: str, subject_head_sha: str, base_cano
 def classify_source(value: str, explicit: str | None = None) -> str:
     if explicit:
         return explicit
-    parsed = urlparse(value)
+    source_value = first_http_url(value)
+    parsed = urlparse(source_value)
     if parsed.scheme in {"http", "https"}:
         host = parsed.netloc.lower()
         path = parsed.path.lower()
@@ -86,6 +151,8 @@ def classify_source(value: str, explicit: str | None = None) -> str:
             return "github_artifact"
         if host in {"arxiv.org", "www.arxiv.org"} or path.endswith(".pdf"):
             return "pdf_arxiv"
+        if parsed.hostname and video_platform_for_host(parsed.hostname) is not None:
+            return "video_platform"
         return "article_html"
     suffix = Path(value).suffix.lower()
     if suffix == ".pdf":
@@ -96,19 +163,20 @@ def classify_source(value: str, explicit: str | None = None) -> str:
 def default_content_mode(source_type: str, redistributable: str) -> str:
     if source_type == "local_draft" and redistributable == "yes":
         return "public_text"
-    if source_type == "pdf_arxiv":
+    if source_type in {"pdf_arxiv", "video_platform"}:
         return "excerpt_only"
     return "excerpt_only"
 
 
 def canonicalize_source(value: str, source_type: str) -> tuple[str | None, str | None]:
-    parsed = urlparse(value)
+    source_value = first_http_url(value)
+    parsed = urlparse(source_value)
     if parsed.scheme in {"http", "https"}:
         if source_type == "pdf_arxiv":
-            arxiv = parse_arxiv(value)
+            arxiv = parse_arxiv(source_value)
             if arxiv is not None:
-                return value, arxiv["abs_url"]
-        return value, value
+                return source_value, arxiv["abs_url"]
+        return source_value, source_value
     return str(Path(value).expanduser()), None
 
 
@@ -320,6 +388,271 @@ def arxiv_metadata_artifact(value: str) -> dict[str, str] | None:
     return {"kind": "arxiv_metadata", **parsed}
 
 
+def parse_video_platform(value: str) -> dict[str, Any]:
+    source_url = first_http_url(value)
+    parsed = urlparse(source_url)
+    if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
+        raise FetchError("video platform source must be an http(s) URL")
+    platform = video_platform_for_host(parsed.hostname)
+    if platform is None:
+        raise FetchError("unsupported video platform host")
+    host = parsed.hostname.lower()
+    return {
+        "kind": "video_platform_locator",
+        "platform": platform,
+        "host": host,
+        "url": source_url,
+        "shortlink": host in VIDEO_SHORTLINK_HOSTS,
+        "requires_operator_capture": True,
+        "recommended_artifacts": [
+            "transcript_or_caption_text",
+            "key_frame_descriptions_or_manifest",
+            "audio_summary",
+            "public_landing_page_metadata",
+        ],
+    }
+
+
+def video_capture_brief(artifact: dict[str, Any], note: str) -> str:
+    lines = [
+        "# Video Platform Intake",
+        "",
+        "This packet records a platform video locator. It does not claim to contain",
+        "the full video, transcript, or downloadable media bytes.",
+        "",
+        f"- platform: {artifact['platform']}",
+        f"- host: {artifact['host']}",
+        f"- url: {artifact['url']}",
+        f"- shortlink: {str(artifact['shortlink']).lower()}",
+        f"- curator_note: {note}",
+        "",
+        "## Required Follow-Up Artifacts",
+        "",
+        "- transcript_or_caption_text",
+        "- key_frame_descriptions_or_manifest",
+        "- audio_summary",
+        "- public_landing_page_metadata",
+        "",
+        "Store only excerpts or operator-authored descriptions unless redistribution",
+        "rights are clear. Full media bytes belong in local-only blob storage, not in",
+        "tracked raw packets.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def safe_blob_filename(value: str) -> str:
+    name = Path(value).name
+    if not name or name in {".", ".."} or not re.fullmatch(r"[A-Za-z0-9_.@+-]{1,160}", name):
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+        suffix = Path(value).suffix.lower()
+        if suffix and re.fullmatch(r"\.[A-Za-z0-9]{1,12}", suffix):
+            return f"artifact-{digest}{suffix}"
+        return f"artifact-{digest}.bin"
+    return name
+
+
+def read_packet(paths: TopologyPaths, source_id: str) -> tuple[Path, SourcePacket]:
+    if not re.fullmatch(r"src_[A-Z0-9]{26}", source_id):
+        raise FetchError("source_id must use src_ opaque ID")
+    packet_path = paths.resolve(f"raw/packets/{source_id}/packet.json")
+    if packet_path.is_symlink() or not packet_path.is_file():
+        raise FetchError("source packet must be a regular non-symlink file")
+    try:
+        payload = json.loads(packet_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise FetchError(f"source packet JSON is invalid: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise FetchError("source packet must be a JSON object")
+    packet = SourcePacket(**payload)
+    packet.validate()
+    return packet_path, packet
+
+
+def attach_video_artifact(
+    root: str | Path,
+    *,
+    source_id: str,
+    artifact_kind: str,
+    artifact_path: str | Path,
+    note: str = "operator captured artifact",
+    track_text: bool = False,
+    evidence_origin: str = "legacy_unknown",
+    coverage: str = "legacy_unknown",
+    modality: str = "legacy_unknown",
+    evidence_attestation: str = "legacy_unknown",
+    attestation_manifest: str | Path | None = None,
+    trusted_attestation: bool = False,
+) -> Path:
+    if artifact_kind not in VIDEO_ARTIFACT_KINDS:
+        raise FetchError("artifact_kind must be one of: " + ", ".join(sorted(VIDEO_ARTIFACT_KINDS)))
+    if evidence_origin not in VIDEO_EVIDENCE_ORIGINS:
+        raise FetchError("evidence_origin must be one of: " + ", ".join(sorted(VIDEO_EVIDENCE_ORIGINS)))
+    if coverage not in VIDEO_COVERAGE_VALUES:
+        raise FetchError("coverage must be one of: " + ", ".join(sorted(VIDEO_COVERAGE_VALUES)))
+    if modality not in VIDEO_MODALITIES:
+        raise FetchError("modality must be one of: " + ", ".join(sorted(VIDEO_MODALITIES)))
+    if evidence_attestation not in VIDEO_ATTESTATIONS:
+        raise FetchError("evidence_attestation must be one of: " + ", ".join(sorted(VIDEO_ATTESTATIONS)))
+    attestation_manifest_path = None
+    paths = TopologyPaths.from_root(root)
+    packet_path, packet = read_packet(paths, source_id)
+    if packet.source_type != "video_platform":
+        raise FetchError("video artifacts can only attach to video_platform source packets")
+    candidate = Path(artifact_path).expanduser()
+    if candidate.is_symlink() or not candidate.is_file():
+        raise FetchError("artifact_path must be a regular non-symlink file")
+    data = candidate.read_bytes()
+    digest = sha256_bytes(data)
+    artifacts = list(packet.artifacts)
+    if track_text:
+        if artifact_kind not in TEXT_VIDEO_ARTIFACT_KINDS:
+            raise FetchError("track_text is only allowed for transcript, key_frames, audio_summary, or landing_page_metadata")
+        text = data.decode("utf-8", errors="replace")
+        body = _safe_excerpt(text, EXTERNAL_PUBLIC_TEXT_LIMIT)
+        tracked_hash = sha256_text(body)
+        attestation_hash = validate_video_attestation_manifest(
+            attestation_manifest,
+            source_id=source_id,
+            output_hash_sha256=tracked_hash,
+            artifact_kind=artifact_kind,
+            evidence_origin=evidence_origin,
+            coverage=coverage,
+            modality=modality,
+            evidence_attestation=evidence_attestation,
+            trusted_attestation=trusted_attestation,
+        )
+        if attestation_manifest:
+            attestation_manifest_path = str(Path(attestation_manifest).expanduser().resolve().relative_to(paths.root))
+        relative = f"{artifact_kind}.md"
+        atomic_write_text(packet_path.parent / relative, body + "\n")
+        artifacts.append({
+            "kind": "video_text_artifact",
+            "artifact_kind": artifact_kind,
+            "path": relative,
+            "hash_sha256": tracked_hash,
+            "source_hash_sha256": digest,
+            "byte_length": len(data),
+            "note": note,
+            "evidence_origin": evidence_origin,
+            "coverage": coverage,
+            "modality": modality,
+            "evidence_attestation": evidence_attestation,
+            **({"attestation_manifest_hash": attestation_hash} if attestation_hash else {}),
+            **({"attestation_manifest_path": attestation_manifest_path} if attestation_manifest_path else {}),
+        })
+    else:
+        attestation_hash = validate_video_attestation_manifest(
+            attestation_manifest,
+            source_id=source_id,
+            output_hash_sha256=digest,
+            artifact_kind=artifact_kind,
+            evidence_origin=evidence_origin,
+            coverage=coverage,
+            modality=modality,
+            evidence_attestation=evidence_attestation,
+            trusted_attestation=trusted_attestation,
+        )
+        if attestation_manifest:
+            attestation_manifest_path = str(Path(attestation_manifest).expanduser().resolve().relative_to(paths.root))
+        filename = safe_blob_filename(str(candidate))
+        storage_dir = paths.ensure_dir(f"raw/local_blobs/{source_id}")
+        storage_path = storage_dir / filename
+        with atomic_writer(storage_path) as temp_path:
+            with candidate.open("rb") as source, temp_path.open("wb") as target:
+                shutil.copyfileobj(source, target)
+        artifacts.append({
+            "kind": "local_blob_ref",
+            "artifact_kind": artifact_kind,
+            "hash_sha256": digest,
+            "byte_length": len(data),
+            "storage_hint": f"raw/local_blobs/{source_id}/{filename}",
+            "note": note,
+            "evidence_origin": evidence_origin,
+            "coverage": coverage,
+            "modality": modality,
+            "evidence_attestation": evidence_attestation,
+            **({"attestation_manifest_hash": attestation_hash} if attestation_hash else {}),
+            **({"attestation_manifest_path": attestation_manifest_path} if attestation_manifest_path else {}),
+        })
+    updated = SourcePacket(
+        schema_version=packet.schema_version,
+        id=packet.id,
+        source_type=packet.source_type,
+        original_url=packet.original_url,
+        canonical_url=packet.canonical_url,
+        retrieved_at=packet.retrieved_at,
+        curator_note=packet.curator_note,
+        ingest_depth=packet.ingest_depth,
+        authority=packet.authority,
+        trust_scope=packet.trust_scope,
+        content_status=packet.content_status,
+        content_mode=packet.content_mode,
+        redistributable=packet.redistributable,
+        hash_original=packet.hash_original,
+        hash_normalized=packet.hash_normalized,
+        artifacts=artifacts,
+        fetch_chain=[
+            *packet.fetch_chain,
+            FetchChainEntry(
+                method="video_artifact_attach",
+                status="partial",
+                note=f"Attached {artifact_kind} artifact metadata",
+            ).to_dict(),
+        ],
+    )
+    atomic_write_text(packet_path, json.dumps(updated.to_dict(), indent=2, sort_keys=True) + "\n")
+    return packet_path
+
+
+def validate_video_attestation_manifest(
+    manifest_path: str | Path | None,
+    *,
+    source_id: str,
+    output_hash_sha256: str,
+    artifact_kind: str,
+    evidence_origin: str,
+    coverage: str,
+    modality: str,
+    evidence_attestation: str,
+    trusted_attestation: bool,
+) -> str | None:
+    if evidence_attestation in {"operator_attested", "provider_generated"} and not trusted_attestation:
+        raise FetchError("deep video evidence requires a trusted provider/operator attestation path")
+    if evidence_attestation in {"operator_attested", "provider_generated"} and manifest_path is None:
+        raise FetchError("deep video evidence requires --attestation-manifest")
+    if manifest_path is None:
+        return None
+    path = Path(manifest_path).expanduser()
+    if path.is_symlink() or not path.is_file():
+        raise FetchError("attestation_manifest must be a regular non-symlink file")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise FetchError(f"attestation_manifest JSON is invalid: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise FetchError("attestation_manifest must be a JSON object")
+    expected = {
+        "schema_version": "1.0",
+        "source_id": source_id,
+        "artifact_kind": artifact_kind,
+        "evidence_origin": evidence_origin,
+        "coverage": coverage,
+        "modality": modality,
+        "evidence_attestation": evidence_attestation,
+        "output_hash_sha256": output_hash_sha256,
+    }
+    for key, value in expected.items():
+        if payload.get(key) != value:
+            raise FetchError(f"attestation_manifest {key} mismatch")
+    attested_by = payload.get("attested_by")
+    if evidence_attestation == "operator_attested" and attested_by != "operator":
+        raise FetchError("operator_attested manifest requires attested_by=operator")
+    if evidence_attestation == "provider_generated" and attested_by != "provider":
+        raise FetchError("provider_generated manifest requires attested_by=provider")
+    return sha256_file(path)
+
+
 def parse_github_artifact(value: str) -> dict[str, Any]:
     parsed = urlparse(value)
     host = parsed.netloc.lower()
@@ -461,6 +794,8 @@ def build_source_packet(
         raise FetchError("external public_text requires redistributable=yes")
     if resolved_type == "pdf_arxiv" and mode == "public_text":
         raise FetchError("pdf_arxiv does not support public_text mode in P11.3")
+    if resolved_type == "video_platform" and mode != "excerpt_only":
+        raise FetchError("video_platform supports excerpt_only locator intake only")
     original_url, canonical_url = canonicalize_source(value, resolved_type)
     packet_id = new_id("src")
     artifacts: list[dict[str, Any]] = []
@@ -588,6 +923,29 @@ def build_source_packet(
                     content_status = "blocked"
         else:
             fetch_chain = [FetchChainEntry(method="github_metadata", status="partial", note="Mutable or metadata-only GitHub artifact").to_dict()]
+    elif resolved_type == "video_platform":
+        artifact = parse_video_platform(value)
+        artifacts.append({
+            **artifact,
+            "note": "Platform video locator captured without direct media download.",
+        })
+        brief = video_capture_brief(artifact, note)
+        files["excerpt.md"] = brief
+        hash_original = sha256_text(artifact["url"])
+        hash_normalized = sha256_text(brief)
+        artifacts.append({
+            "kind": "video_capture_brief",
+            "path": "excerpt.md",
+            "hash_sha256": hash_normalized,
+        })
+        fetch_chain = [
+            FetchChainEntry(
+                method="video_platform_locator",
+                status="partial",
+                note="Captured platform URL; operator must provide transcript/key-frame/audio artifacts.",
+            ).to_dict()
+        ]
+        content_status = "partial"
     else:
         artifacts.append(SourceArtifact(kind="manifest", note="Unknown source type; excerpt_only default").to_dict())
 
@@ -651,13 +1009,15 @@ def ingest_source(
     for relative, text in files.items():
         atomic_write_text(packet_dir / relative, text)
     atomic_write_text(packet_dir / "packet.json", json.dumps(packet.to_dict(), indent=2, sort_keys=True) + "\n")
-    digest_job = create_job(
-        root,
-        "digest",
-        payload={"source_id": packet.id, "audience": audience},
-        subject_repo_id=subject_repo_id,
-        subject_head_sha=subject_head_sha,
-        base_canonical_rev=base_canonical_rev,
-        created_by="reader",
-    )
+    digest_job = None
+    if packet.source_type != "video_platform":
+        digest_job = create_job(
+            root,
+            "digest",
+            payload={"source_id": packet.id, "audience": audience},
+            subject_repo_id=subject_repo_id,
+            subject_head_sha=subject_head_sha,
+            base_canonical_rev=base_canonical_rev,
+            created_by="reader",
+        )
     return IngestResult(packet.id, packet_dir / "packet.json", digest_job)

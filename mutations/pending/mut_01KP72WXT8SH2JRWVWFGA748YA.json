@@ -1,0 +1,100 @@
+{
+  "base_canonical_rev": "2fda190ac1f2e8ddb4a36eca89b606320d4d1403",
+  "changes": [
+    {
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP72W6XX6E6EQH9V746FVXJ7",
+      "node_id": "nd_01KP72WXT8F602MQRY19DTB3QC",
+      "op": "propose_node",
+      "reason": "Downloaded platform video evidence is attached after locator intake through topology video attach-artifact, with media bytes kept in local-only blob storage.",
+      "source_id": "src_01KP72W6XXX3BHD3JNK0KAEMAW",
+      "status": "draft",
+      "type": "decision"
+    },
+    {
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP72W6XX6E6EQH9V746FVXJ7",
+      "file_refs": [],
+      "name": "topology video attach-artifact",
+      "node_id": "nd_01KP72WXT8PCPG9X74B82HMAAZ",
+      "op": "propose_node",
+      "reason": "Operators can attach downloaded video files, transcripts, key-frame descriptions, audio summaries, or landing metadata to a video_platform source packet without committing media bytes.",
+      "source_id": "src_01KP72W6XXX3BHD3JNK0KAEMAW",
+      "status": "draft",
+      "type": "interface"
+    },
+    {
+      "audiences": [
+        "openclaw"
+      ],
+      "authority": "runtime_observed",
+      "digest_id": "dg_01KP72W6XX6E6EQH9V746FVXJ7",
+      "node_id": "nd_01KP72WXT8ERRRW0P6W90AK6EG",
+      "observed_in": "real-test video artifact attach",
+      "op": "propose_node",
+      "reason": "Some platform video evidence still requires opening the platform link or using an external downloader, but the resulting local file can now be bound back to topology as evidence.",
+      "scope": "runtime",
+      "sensitivity": "runtime_only",
+      "source_id": "src_01KP72W6XXX3BHD3JNK0KAEMAW",
+      "status": "draft",
+      "type": "runtime_observation"
+    },
+    {
+      "applies_to": "future video ingestion workflows",
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP72W6XX6E6EQH9V746FVXJ7",
+      "node_id": "nd_01KP72WXT88YZD4VV7KPF9VWTB",
+      "op": "propose_node",
+      "reason": "Separate platform video locator intake from local artifact attachment so public-safe fetch stays conservative while real-use workflows can still bind downloaded evidence.",
+      "source_id": "src_01KP72W6XXX3BHD3JNK0KAEMAW",
+      "status": "draft",
+      "type": "task_lesson"
+    }
+  ],
+  "evidence_refs": [
+    "dg_01KP72W6XX6E6EQH9V746FVXJ7",
+    "src_01KP72W6XXX3BHD3JNK0KAEMAW"
+  ],
+  "human_gate_class": null,
+  "id": "mut_01KP72WXT8SH2JRWVWFGA748YA",
+  "merge_confidence": "medium",
+  "metadata": {
+    "commands_run": [
+      {
+        "command": "rm -rf raw",
+        "exit_code": 0,
+        "notes": "removed accidental temporary root-level smoke packet before commit"
+      }
+    ],
+    "file_refs": [],
+    "tests_run": [
+      {
+        "command": "PYTHONPATH=src python -m pytest tests/test_p11_3_fetch_v2.py tests/test_p2_source_packet_fetch.py -q",
+        "notes": "focused video locator and artifact attachment tests",
+        "result": "passed"
+      },
+      {
+        "command": "PYTHONPATH=src python -m pytest -q",
+        "notes": "full repository suite",
+        "result": "passed"
+      },
+      {
+        "command": "PYTHONPATH=src python -m compileall -q src tests",
+        "notes": "syntax check",
+        "result": "passed"
+      },
+      {
+        "command": "git diff --check",
+        "notes": "whitespace check",
+        "result": "passed"
+      }
+    ],
+    "writeback_summary": ".tmp/video_artifact_attach_writeback.json"
+  },
+  "proposal_type": "session_writeback",
+  "proposed_by": "writeback",
+  "requires_human": false,
+  "schema_version": "1.0",
+  "subject_head_sha": "2fda190ac1f2e8ddb4a36eca89b606320d4d1403",
+  "subject_repo_id": "repo_knowledge_topology"
+}

@@ -11,13 +11,18 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from knowledge_topology.workers.digest import build_digest_model_request
+from knowledge_topology.workers.digest import DigestWorkerError
 from knowledge_topology.workers.fetch import EXTERNAL_PUBLIC_TEXT_LIMIT
 from knowledge_topology.workers.fetch import FetchError
 from knowledge_topology.workers.fetch import FetchResponse
+from knowledge_topology.workers.fetch import _safe_excerpt
+from knowledge_topology.workers.fetch import attach_video_artifact
 from knowledge_topology.workers.fetch import classify_source
 from knowledge_topology.workers.fetch import ingest_source
+from knowledge_topology.workers.fetch import parse_video_platform
 from knowledge_topology.workers.fetch import parse_github_artifact
 from knowledge_topology.workers.fetch import validate_fetch_url
+from knowledge_topology.workers.fetch import sha256_text
 from knowledge_topology.workers.init import init_topology
 
 
@@ -49,6 +54,26 @@ def ingest(root: Path, value: str, **kwargs):
         base_canonical_rev="rev_current",
         **kwargs,
     )
+
+
+def write_attestation(root: Path, source_id: str, kind: str, artifact_path: Path, provenance: tuple[str, str, str, str]) -> Path:
+    path = root / f"{kind}_attestation.json"
+    path.write_text(
+        json.dumps({
+            "schema_version": "1.0",
+            "source_id": source_id,
+            "artifact_kind": kind,
+            "evidence_origin": provenance[0],
+            "coverage": provenance[1],
+            "modality": provenance[2],
+            "evidence_attestation": provenance[3],
+            "output_hash_sha256": sha256_text(_safe_excerpt(artifact_path.read_text(encoding="utf-8"), EXTERNAL_PUBLIC_TEXT_LIMIT)),
+            "input_refs": [{"kind": "test_fixture", "hash_sha256": sha256_text(artifact_path.read_text(encoding="utf-8"))}],
+            "attested_by": "operator",
+        }),
+        encoding="utf-8",
+    )
+    return path
 
 
 class P11FetchV2Tests(unittest.TestCase):
@@ -309,6 +334,179 @@ class P11FetchV2Tests(unittest.TestCase):
                     self.assertEqual(packet["content_status"], "blocked")
                     self.assertEqual(packet["fetch_chain"][0]["status"], "blocked")
                     self.assertFalse((result.packet_path.parent / "excerpt.md").exists())
+
+    def test_video_platform_shortlink_ingest_is_locator_only_and_does_not_fetch(self):
+        douyin_share = "https://v.douyin.com/6l8q1jGwRl4/ Slp:/ 06/05 K@W.MJ"
+        self.assertEqual(classify_source(douyin_share), "video_platform")
+        parsed = parse_video_platform(douyin_share)
+        self.assertEqual(parsed["platform"], "douyin")
+        self.assertTrue(parsed["shortlink"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+
+            def failing_fetcher(url: str, max_bytes: int) -> FetchResponse:
+                raise AssertionError("video_platform intake must not fetch network content")
+
+            result = ingest(root, douyin_share, fetcher=failing_fetcher)
+            packet = json.loads(result.packet_path.read_text(encoding="utf-8"))
+            excerpt = (result.packet_path.parent / "excerpt.md").read_text(encoding="utf-8")
+            self.assertIsNone(result.digest_job_path)
+            self.assertEqual(list((root / "ops/queue/digest/pending").glob("job_*.json")), [])
+            self.assertEqual(packet["source_type"], "video_platform")
+            self.assertEqual(packet["content_status"], "partial")
+            self.assertEqual(packet["content_mode"], "excerpt_only")
+            self.assertEqual(packet["fetch_chain"][0]["method"], "video_platform_locator")
+            self.assertEqual(packet["artifacts"][0]["kind"], "video_platform_locator")
+            self.assertEqual(packet["artifacts"][0]["platform"], "douyin")
+            self.assertEqual(packet["artifacts"][0]["url"], "https://v.douyin.com/6l8q1jGwRl4/")
+            self.assertIn("Required Follow-Up Artifacts", excerpt)
+            self.assertIn("transcript_or_caption_text", excerpt)
+            with self.assertRaisesRegex(DigestWorkerError, "missing artifacts"):
+                build_digest_model_request(root, packet["id"])
+
+    def test_video_platform_rejects_public_text_and_local_blob_modes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            with self.assertRaisesRegex(FetchError, "excerpt_only"):
+                ingest(root, "https://www.tiktok.com/@user/video/123", content_mode="public_text", redistributable="yes")
+            with self.assertRaisesRegex(FetchError, "excerpt_only"):
+                ingest(root, "https://youtu.be/abc123", content_mode="local_blob")
+
+    def test_video_artifact_attachment_stores_video_blob_outside_git_packet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            result = ingest(root, "https://v.douyin.com/6l8q1jGwRl4/")
+            outside = Path(tempfile.mkdtemp()) / "downloaded.mp4"
+            outside.write_bytes(b"fake video bytes")
+            updated_path = attach_video_artifact(
+                root,
+                source_id=json.loads(result.packet_path.read_text(encoding="utf-8"))["id"],
+                artifact_kind="video_file",
+                artifact_path=outside,
+                note="downloaded by operator",
+            )
+            packet = json.loads(updated_path.read_text(encoding="utf-8"))
+            blob = packet["artifacts"][-1]
+            self.assertEqual(blob["kind"], "local_blob_ref")
+            self.assertEqual(blob["artifact_kind"], "video_file")
+            self.assertEqual(blob["byte_length"], len(b"fake video bytes"))
+            self.assertIn("raw/local_blobs/", blob["storage_hint"])
+            self.assertNotIn(str(outside), json.dumps(packet))
+            self.assertTrue((root / blob["storage_hint"]).exists())
+
+    def test_video_text_artifact_attachment_tracks_bounded_transcript(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            result = ingest(root, "https://youtu.be/abc123")
+            transcript = root / "transcript.txt"
+            transcript.write_text("spoken words " * 2000, encoding="utf-8")
+            updated_path = attach_video_artifact(
+                root,
+                source_id=json.loads(result.packet_path.read_text(encoding="utf-8"))["id"],
+                artifact_kind="transcript",
+                artifact_path=transcript,
+                note="operator transcript",
+                track_text=True,
+            )
+            packet = json.loads(updated_path.read_text(encoding="utf-8"))
+            artifact = packet["artifacts"][-1]
+            self.assertEqual(artifact["kind"], "video_text_artifact")
+            self.assertEqual(artifact["artifact_kind"], "transcript")
+            self.assertEqual(artifact["path"], "transcript.md")
+            self.assertEqual(artifact["evidence_origin"], "legacy_unknown")
+            self.assertEqual(artifact["coverage"], "legacy_unknown")
+            self.assertEqual(artifact["modality"], "legacy_unknown")
+            self.assertEqual(artifact["evidence_attestation"], "legacy_unknown")
+            tracked = (updated_path.parent / "transcript.md").read_text(encoding="utf-8")
+            self.assertLessEqual(len(tracked.strip()), EXTERNAL_PUBLIC_TEXT_LIMIT)
+            self.assertIn("spoken words", tracked)
+
+    def test_video_digest_request_includes_attached_deep_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_with_prompts(root)
+            result = ingest(root, "https://v.douyin.com/6l8q1jGwRl4/", depth="deep")
+            source_id = json.loads(result.packet_path.read_text(encoding="utf-8"))["id"]
+            transcript = root / "transcript.txt"
+            transcript.write_text(
+                "开头反驳一个常见误区。"
+                "核心论证提出中心 thesis、三个章节、两个关键概念、一个反例和一个适用边界。"
+                "结论要求听众不要只记住标签，要理解机制、证据和条件。",
+                encoding="utf-8",
+            )
+            key_frames = root / "key_frames.txt"
+            key_frames.write_text(
+                "关键帧：误区标题；章节结构图；反例对照表；适用条件列表。",
+                encoding="utf-8",
+            )
+            audio = root / "audio_summary.txt"
+            audio.write_text("音频摘要：作者区分主张、证据、机制、例外和开放问题。", encoding="utf-8")
+            for kind, path in [
+                ("transcript", transcript),
+                ("key_frames", key_frames),
+                ("audio_summary", audio),
+            ]:
+                provenance = {
+                    "transcript": ("human_transcript", "partial", "human_note", "operator_attested"),
+                    "key_frames": ("human_frame_notes", "partial", "human_note", "operator_attested"),
+                    "audio_summary": ("human_audio_summary", "partial", "human_note", "operator_attested"),
+                }[kind]
+                attach_video_artifact(
+                    root,
+                    source_id=source_id,
+                    artifact_kind=kind,
+                    artifact_path=path,
+                    track_text=True,
+                    evidence_origin=provenance[0],
+                    coverage=provenance[1],
+                    modality=provenance[2],
+                    evidence_attestation=provenance[3],
+                    attestation_manifest=write_attestation(root, source_id, kind, path, provenance),
+                    trusted_attestation=True,
+                )
+            request = build_digest_model_request(root, source_id)
+            serialized = json.dumps(request.to_dict(), ensure_ascii=False, sort_keys=True)
+            self.assertEqual(request.source_text_kind, "video_artifacts")
+            self.assertIn("## transcript", request.source_text or "")
+            self.assertIn("中心 thesis", serialized)
+            self.assertIn("关键概念", serialized)
+            self.assertIn("适用边界", serialized)
+            self.assertIn("开放问题", serialized)
+            self.assertIn("opening misconception", request.prompt)
+            self.assertIn("chapter or segment structure", request.prompt)
+            self.assertIn("Do not assume the video's domain", request.prompt)
+
+    def test_video_artifact_attachment_rejects_non_video_packets_and_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            draft = root / "draft.md"
+            draft.write_text("note\n", encoding="utf-8")
+            result = ingest_source(
+                root,
+                str(draft),
+                note="draft",
+                depth="standard",
+                audience="builders",
+                subject_repo_id="repo_knowledge_topology",
+                subject_head_sha="abc123",
+                base_canonical_rev="rev_current",
+                redistributable="yes",
+            )
+            video = root / "video.mp4"
+            video.write_bytes(b"fake")
+            with self.assertRaisesRegex(FetchError, "video_platform"):
+                attach_video_artifact(root, source_id=result.packet_id, artifact_kind="video_file", artifact_path=video)
+
+            video_source = ingest(root, "https://v.douyin.com/6l8q1jGwRl4/")
+            link = root / "video-link.mp4"
+            link.symlink_to(video)
+            with self.assertRaisesRegex(FetchError, "regular non-symlink"):
+                attach_video_artifact(root, source_id=video_source.packet_id, artifact_kind="video_file", artifact_path=link)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,11 @@ from knowledge_topology.adapters.openclaw_live import lease_openclaw_live_job
 from knowledge_topology.adapters.openclaw_live import run_openclaw_live_writeback
 from knowledge_topology.workers.agent_guard import guard_claude_pre_tool_use
 from knowledge_topology.workers.apply import ApplyError, apply_mutation
+from knowledge_topology.workers.bootstrap import BootstrapError
+from knowledge_topology.workers.bootstrap import bootstrap_consumer
+from knowledge_topology.workers.bootstrap import doctor_consumer
+from knowledge_topology.workers.bootstrap import remove_bootstrap
+from knowledge_topology.workers.bootstrap import resolve_context
 from knowledge_topology.workers.compose_builder import ComposeError, write_builder_pack
 from knowledge_topology.workers.compose_openclaw import OpenClawComposeError, write_openclaw_projection
 from knowledge_topology.workers.doctor import doctor_canonical_parity
@@ -28,11 +33,19 @@ from knowledge_topology.workers.doctor import doctor_projections
 from knowledge_topology.workers.doctor import doctor_public_safe
 from knowledge_topology.workers.doctor import doctor_queues
 from knowledge_topology.workers.doctor import stale_anchors
+from knowledge_topology.workers.evaluation import EvaluationError, run_evaluation
 from knowledge_topology.workers.lint import run_lints, run_repo_lints, run_runtime_lints
 from knowledge_topology.workers.run_digest_queue import DigestQueueRunnerError, run_digest_queue
+from knowledge_topology.workers.supervisor import SupervisorError, run_supervisor
+from knowledge_topology.workers.video import VideoWorkflowError
+from knowledge_topology.workers.video import prepare_digest as prepare_video_digest
+from knowledge_topology.workers.video import video_ingest
+from knowledge_topology.workers.video import video_status
+from knowledge_topology.workers.video import video_trace
+from knowledge_topology.workers.video_provider import VideoProviderError, generate_provider_keypair, run_video_provider, stage_video_provider_bundle_from_key
 from knowledge_topology.workers.writeback import WritebackError, writeback_session
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
-from knowledge_topology.workers.fetch import FetchError, ingest_source
+from knowledge_topology.workers.fetch import FetchError, attach_video_artifact, ingest_source
 from knowledge_topology.workers.init import init_topology
 from knowledge_topology.workers.reconcile import ReconcileError, reconcile_digest
 from knowledge_topology.subjects import SubjectRegistryError, add_subject, refresh_subject, resolve_subject, show_subject, utc_now
@@ -72,7 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--base-canonical-rev", required=True, help="base canonical revision")
     ingest_parser.add_argument("--redistributable", choices=["yes", "no", "unknown"], default="unknown")
     ingest_parser.add_argument("--content-mode", choices=["public_text", "excerpt_only", "local_blob"])
-    ingest_parser.add_argument("--source-type", choices=["local_draft", "github_artifact", "article_html", "pdf_arxiv"])
+    ingest_parser.add_argument("--source-type", choices=["local_draft", "github_artifact", "article_html", "pdf_arxiv", "video_platform"])
 
     digest_parser = subparsers.add_parser("digest", help="validate and write digest artifacts")
     digest_parser.add_argument("--root", default=".", help="topology root")
@@ -105,6 +118,26 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
     apply_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
     apply_parser.add_argument("--approve-human", action="store_true", help="approve human-gated mutation")
+
+    resolve_context_parser = subparsers.add_parser("resolve-context", help="resolve topology/subject context")
+    resolve_context_parser.add_argument("--topology-root", required=True, help="topology root")
+    resolve_context_parser.add_argument("--subject-path", required=True, help="subject repo path")
+    resolve_context_parser.add_argument("--json", action="store_true", help="emit JSON")
+
+    bootstrap_parser = subparsers.add_parser("bootstrap", help="install consumer repo topology wiring")
+    bootstrap_subparsers = bootstrap_parser.add_subparsers(dest="bootstrap_command")
+    for name in ["codex", "claude"]:
+        sub = bootstrap_subparsers.add_parser(name, help=f"bootstrap {name} consumer wiring")
+        sub.add_argument("--topology-root", required=True, help="topology root")
+        sub.add_argument("--subject-path", required=True, help="subject repo path")
+    openclaw_bootstrap = bootstrap_subparsers.add_parser("openclaw", help="bootstrap OpenClaw workspace wiring")
+    openclaw_bootstrap.add_argument("--topology-root", required=True, help="topology root")
+    openclaw_bootstrap.add_argument("--subject-path", required=True, help="subject repo path")
+    openclaw_bootstrap.add_argument("--workspace", required=True, help="OpenClaw workspace path")
+    openclaw_bootstrap.add_argument("--project-id", required=True, help="OpenClaw runtime project id")
+    bootstrap_remove = bootstrap_subparsers.add_parser("remove", help="remove generated consumer wiring")
+    bootstrap_remove.add_argument("--subject-path", required=True, help="subject repo path")
+    bootstrap_remove.add_argument("--workspace", help="OpenClaw workspace path for workspace-local bundle removal")
 
     subject_parser = subparsers.add_parser("subject", help="manage subject registry")
     subject_subparsers = subject_parser.add_subparsers(dest="subject_command")
@@ -169,6 +202,100 @@ def build_parser() -> argparse.ArgumentParser:
     canonical_parity_parser.add_argument("--root", default=".", help="topology root")
     public_safe_parser = doctor_subparsers.add_parser("public-safe", help="report public-safe source packet issues")
     public_safe_parser.add_argument("--root", default=".", help="topology root")
+    consumer_parser = doctor_subparsers.add_parser("consumer", help="report external consumer wiring health")
+    consumer_parser.add_argument("--topology-root", required=True, help="topology root")
+    consumer_parser.add_argument("--subject-path", required=True, help="subject repo path")
+    consumer_parser.add_argument("--workspace", help="OpenClaw workspace path for workspace-local bundle checks")
+
+    video_parser = subparsers.add_parser("video", help="manage platform video evidence workflows")
+    video_subparsers = video_parser.add_subparsers(dest="video_command")
+    video_ingest_parser = video_subparsers.add_parser("ingest", help="operator-facing video URL intake")
+    video_ingest_parser.add_argument("url", help="platform video URL or share text")
+    video_ingest_parser.add_argument("--root", default=".", help="topology root")
+    video_ingest_parser.add_argument("--note", required=True, help="curator note")
+    video_ingest_parser.add_argument("--depth", choices=["deep", "standard", "scan"], default="standard")
+    video_ingest_parser.add_argument("--audience", choices=["builders", "openclaw", "all"], default="all")
+    video_ingest_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    video_ingest_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+    video_ingest_parser.add_argument("--base-canonical-rev", required=True, help="base canonical revision")
+    video_ingest_parser.add_argument("--provider", choices=["youtube", "yt-dlp", "browser-capture", "manual-upload"], default="manual-upload")
+    video_ingest_parser.add_argument("--transcriber", choices=["whisper", "provider", "none"], default="none")
+    video_ingest_parser.add_argument("--vision-provider", choices=["gemini", "openai", "none"], default="none")
+    video_ingest_parser.add_argument("--auto-digest", action="store_true", help="enqueue digest only if video evidence is ready")
+    video_ingest_parser.add_argument("--redistributable", choices=["yes", "no", "unknown"], default="unknown")
+    video_status_parser = video_subparsers.add_parser("status", help="report video source evidence completeness")
+    video_status_parser.add_argument("--root", default=".", help="topology root")
+    video_status_parser.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_trace_parser = video_subparsers.add_parser("trace", help="trace video source pipeline stage")
+    video_trace_parser.add_argument("--root", default=".", help="topology root")
+    video_trace_parser.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_prepare = video_subparsers.add_parser("prepare-digest", help="check video source digest readiness")
+    video_prepare.add_argument("--root", default=".", help="topology root")
+    video_prepare.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_prepare.add_argument("--allow-locator-only", action="store_true", help="allow shallow locator-only digest")
+    video_attach = video_subparsers.add_parser("attach-artifact", help="attach local video/transcript evidence to a video source packet")
+    video_attach.add_argument("--root", default=".", help="topology root")
+    video_attach.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_attach.add_argument(
+        "--artifact-kind",
+        required=True,
+        choices=["video_file", "transcript", "key_frames", "audio_summary", "landing_page_metadata"],
+        help="artifact role",
+    )
+    video_attach.add_argument("--artifact-path", required=True, help="local artifact file")
+    video_attach.add_argument("--note", default="operator captured artifact", help="artifact note")
+    video_attach.add_argument("--track-text", action="store_true", help="track bounded text excerpt instead of a local blob ref")
+    video_attach.add_argument("--evidence-origin", default="legacy_unknown", help="semantic evidence origin")
+    video_attach.add_argument("--coverage", default="legacy_unknown", help="evidence coverage")
+    video_attach.add_argument("--modality", default="legacy_unknown", help="evidence modality")
+    video_attach.add_argument("--evidence-attestation", default="legacy_unknown", help="evidence attestation")
+    video_attach.add_argument("--attestation-manifest", help="operator/provider attestation manifest for deep evidence")
+    video_provider = video_subparsers.add_parser("provider-run", help="run trusted staged video provider output")
+    video_provider.add_argument("--root", default=".", help="topology root")
+    video_provider.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_provider.add_argument("--provider", choices=["staged-bundle"], default="staged-bundle", help="trusted provider bridge")
+    video_provider.add_argument("--auto-digest", action="store_true", help="enqueue digest after deep-ready evidence")
+    video_provider.add_argument("--subject", dest="subject_repo_id", help="subject repo id for --auto-digest")
+    video_provider.add_argument("--subject-head-sha", help="subject HEAD SHA for --auto-digest")
+    video_provider.add_argument("--base-canonical-rev", help="base canonical revision for --auto-digest")
+    video_provider.add_argument("--audience", choices=["builders", "openclaw", "all"], default="all", help="digest audience")
+    video_keygen = video_subparsers.add_parser("provider-keygen", help="generate a local video provider keypair")
+    video_keygen.add_argument("--root", default=".", help="topology root used to reject in-repo key output")
+    video_keygen.add_argument("--output-dir", required=True, help="directory for generated key files")
+    video_keygen.add_argument("--key-id", required=True, help="provider key id")
+    video_keygen.add_argument("--provider-name", default="local-provider", help="provider display token")
+    video_stage = video_subparsers.add_parser("provider-stage", help="stage a signed trusted video provider bundle")
+    video_stage.add_argument("--root", default=".", help="topology root")
+    video_stage.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_stage.add_argument("--artifact-dir", required=True, help="directory with transcript.md, key_frames.md, audio_summary.md")
+    video_stage.add_argument("--provider-root", required=True, help="external trusted provider root")
+    video_stage.add_argument("--private-key-file", required=True, help="provider private key JSON file")
+    video_stage.add_argument("--provider-key-id", help="provider key id")
+    video_stage.add_argument("--provider-name", help="provider name")
+    video_stage.add_argument("--attested-by", choices=["provider", "operator"], default="provider", help="attestation authority")
+
+    supervisor_parser = subparsers.add_parser("supervisor", help="run bounded maintainer supervisor workflows")
+    supervisor_subparsers = supervisor_parser.add_subparsers(dest="supervisor_command")
+    supervisor_run = supervisor_subparsers.add_parser("run", help="run maintainer supervisor once")
+    supervisor_run.add_argument("--root", default=".", help="topology root")
+    supervisor_run.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    supervisor_run.add_argument("--digest-provider-command", help="local digest provider command")
+    supervisor_run.add_argument("--model-output-dir", help="JSON fixture provider directory")
+    supervisor_run.add_argument("--provider-timeout-seconds", type=int, default=120, help="provider timeout")
+    supervisor_run.add_argument("--owner", default="topology-supervisor", help="queue lease owner")
+    supervisor_run.add_argument("--max-digest-jobs", type=int, default=1, help="max digest jobs")
+    supervisor_run.add_argument("--max-reconcile", type=int, default=10, help="max digest artifacts to reconcile")
+    supervisor_run.add_argument("--max-apply", type=int, default=10, help="max low-risk mutations to apply")
+    supervisor_run.add_argument("--max-attempts", type=int, default=3, help="max queue attempts before failing expired leases")
+    supervisor_run.add_argument("--auto-apply-low-risk", action="store_true", help="apply only low-risk open-gap packs")
+    supervisor_run.add_argument("--openclaw-project-id", help="compile OpenClaw projection for project id")
+    supervisor_run.add_argument("--subject-path", help="optional subject path for OpenClaw projection verification")
+
+    eval_parser = subparsers.add_parser("eval", help="run deterministic topology evaluation reports")
+    eval_subparsers = eval_parser.add_subparsers(dest="eval_command")
+    eval_run = eval_subparsers.add_parser("run", help="write a local-only evaluation report")
+    eval_run.add_argument("--root", default=".", help="topology root")
+    eval_run.add_argument("--subject", dest="subject_repo_id", help="optional subject repo id")
 
     openclaw_parser = subparsers.add_parser("openclaw", help="run OpenClaw live bridge operations")
     openclaw_subparsers = openclaw_parser.add_subparsers(dest="openclaw_command")
@@ -246,7 +373,10 @@ def main(argv: list[str] | None = None) -> int:
         except (FetchError, SourcePacketError, ValueError) as exc:
             parser.exit(2, f"topology ingest: {exc}\n")
         print(f"created source packet: {result.packet_path}")
-        print(f"enqueued digest job: {result.digest_job_path}")
+        if result.digest_job_path is not None:
+            print(f"enqueued digest job: {result.digest_job_path}")
+        else:
+            print("digest job not enqueued: video_platform requires attached evidence")
         return 0
     if args.command == "digest":
         root = Path(args.root).expanduser().resolve()
@@ -353,6 +483,42 @@ def main(argv: list[str] | None = None) -> int:
         print(f"applied mutation pack: {applied_path}")
         print(f"wrote audit event: {event_path}")
         return 0
+    if args.command == "resolve-context":
+        try:
+            payload = resolve_context(args.topology_root, args.subject_path)
+        except (BootstrapError, ValueError) as exc:
+            parser.exit(2, f"topology resolve-context: {exc}\n")
+        if args.json:
+            print(json_dumps(payload))
+        else:
+            for key in ["topology_root", "subject_path", "subject_repo_id", "canonical_rev", "subject_head_sha"]:
+                print(f"{key}: {payload[key]}")
+        return 0
+    if args.command == "bootstrap" and args.bootstrap_command in {"codex", "claude", "openclaw"}:
+        try:
+            result = bootstrap_consumer(
+                args.topology_root,
+                args.subject_path,
+                target=args.bootstrap_command,
+                workspace=getattr(args, "workspace", None),
+                project_id=getattr(args, "project_id", None),
+            )
+        except (BootstrapError, ValueError) as exc:
+            parser.exit(2, f"topology bootstrap {args.bootstrap_command}: {exc}\n")
+        print(f"bootstrapped {args.bootstrap_command}: {result.manifest_path}")
+        for path in result.written:
+            print(f"wrote: {path}")
+        for path in result.skipped:
+            print(f"preserved modified generated file: {path}")
+        return 0
+    if args.command == "bootstrap" and args.bootstrap_command == "remove":
+        try:
+            result = remove_bootstrap(args.subject_path, workspace=args.workspace)
+        except (BootstrapError, ValueError) as exc:
+            parser.exit(2, f"topology bootstrap remove: {exc}\n")
+        for message in result.messages:
+            print(message)
+        return 0 if result.ok else 1
     if args.command == "subject" and args.subject_command == "add":
         try:
             payload = add_subject(
@@ -469,6 +635,157 @@ def main(argv: list[str] | None = None) -> int:
         for message in result.messages:
             print(message)
         return 0 if result.ok else 1
+    if args.command == "doctor" and args.doctor_command == "consumer":
+        try:
+            result = doctor_consumer(args.topology_root, args.subject_path, workspace=args.workspace)
+        except (BootstrapError, ValueError) as exc:
+            parser.exit(2, f"topology doctor consumer: {exc}\n")
+        for message in result.messages:
+            print(message)
+        return 0 if result.ok else 1
+    if args.command == "video" and args.video_command == "ingest":
+        try:
+            result = video_ingest(
+                Path(args.root).expanduser().resolve(),
+                args.url,
+                note=args.note,
+                depth=args.depth,
+                audience=args.audience,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+                base_canonical_rev=args.base_canonical_rev,
+                provider=args.provider,
+                transcriber=args.transcriber,
+                vision_provider=args.vision_provider,
+                auto_digest=args.auto_digest,
+                redistributable=args.redistributable,
+            )
+        except (VideoWorkflowError, FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video ingest: {exc}\n")
+        print(f"created video source packet: {result.packet_path}")
+        if result.digest_job_path is not None:
+            print(f"enqueued video digest job: {result.digest_job_path}")
+        print(json_dumps(result.status))
+        return 0
+    if args.command == "video" and args.video_command == "status":
+        try:
+            payload = video_status(Path(args.root).expanduser().resolve(), args.source_id)
+        except (VideoWorkflowError, FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video status: {exc}\n")
+        print(json_dumps(payload))
+        return 0 if payload["ready_for_deep_digest"] else 1
+    if args.command == "video" and args.video_command == "trace":
+        try:
+            payload = video_trace(Path(args.root).expanduser().resolve(), args.source_id)
+        except (VideoWorkflowError, FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video trace: {exc}\n")
+        print(json_dumps(payload))
+        return 0
+    if args.command == "video" and args.video_command == "prepare-digest":
+        try:
+            payload = prepare_video_digest(
+                Path(args.root).expanduser().resolve(),
+                args.source_id,
+                allow_locator_only=args.allow_locator_only,
+            )
+        except (VideoWorkflowError, FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video prepare-digest: {exc}\n")
+        print(json_dumps(payload))
+        return 0 if payload["digest_ready"] or payload.get("locator_digest_allowed") else 1
+    if args.command == "video" and args.video_command == "attach-artifact":
+        try:
+            packet_path = attach_video_artifact(
+                Path(args.root).expanduser().resolve(),
+                source_id=args.source_id,
+                artifact_kind=args.artifact_kind,
+                artifact_path=args.artifact_path,
+                note=args.note,
+                track_text=args.track_text,
+                evidence_origin=args.evidence_origin,
+                coverage=args.coverage,
+                modality=args.modality,
+                evidence_attestation=args.evidence_attestation,
+                attestation_manifest=args.attestation_manifest,
+            )
+        except (FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video attach-artifact: {exc}\n")
+        print(f"updated video source packet: {packet_path}")
+        return 0
+    if args.command == "video" and args.video_command == "provider-run":
+        try:
+            result = run_video_provider(
+                Path(args.root).expanduser().resolve(),
+                source_id=args.source_id,
+                provider=args.provider,
+                auto_digest=args.auto_digest,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+                base_canonical_rev=args.base_canonical_rev,
+                audience=args.audience,
+            )
+        except (VideoProviderError, FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video provider-run: {exc}\n")
+        print(json_dumps(result.payload))
+        return 0
+    if args.command == "video" and args.video_command == "provider-keygen":
+        try:
+            payload = generate_provider_keypair(
+                args.output_dir,
+                key_id=args.key_id,
+                provider_name=args.provider_name,
+                topology_root=Path(args.root).expanduser().resolve(),
+            )
+        except (VideoProviderError, ValueError) as exc:
+            parser.exit(2, f"topology video provider-keygen: {exc}\n")
+        print(json_dumps(payload))
+        return 0
+    if args.command == "video" and args.video_command == "provider-stage":
+        try:
+            payload = stage_video_provider_bundle_from_key(
+                Path(args.root).expanduser().resolve(),
+                source_id=args.source_id,
+                artifact_dir=args.artifact_dir,
+                provider_root=args.provider_root,
+                private_key_file=args.private_key_file,
+                provider_key_id=args.provider_key_id,
+                provider_name=args.provider_name,
+                attested_by=args.attested_by,
+            )
+        except (VideoProviderError, ValueError) as exc:
+            parser.exit(2, f"topology video provider-stage: {exc}\n")
+        print(json_dumps(payload))
+        return 0
+    if args.command == "supervisor" and args.supervisor_command == "run":
+        try:
+            result = run_supervisor(
+                Path(args.root).expanduser().resolve(),
+                subject_repo_id=args.subject_repo_id,
+                digest_provider_command=args.digest_provider_command,
+                model_output_dir=args.model_output_dir,
+                provider_timeout_seconds=args.provider_timeout_seconds,
+                owner=args.owner,
+                max_digest_jobs=args.max_digest_jobs,
+                max_reconcile=args.max_reconcile,
+                max_apply=args.max_apply,
+                max_attempts=args.max_attempts,
+                auto_apply_low_risk=args.auto_apply_low_risk,
+                openclaw_project_id=args.openclaw_project_id,
+                subject_path=args.subject_path,
+            )
+        except (SupervisorError, ValueError) as exc:
+            parser.exit(2, f"topology supervisor run: {exc}\n")
+        print(json_dumps(result.payload))
+        return 0
+    if args.command == "eval" and args.eval_command == "run":
+        try:
+            result = run_evaluation(
+                Path(args.root).expanduser().resolve(),
+                subject_repo_id=args.subject_repo_id,
+            )
+        except (EvaluationError, ValueError) as exc:
+            parser.exit(2, f"topology eval run: {exc}\n")
+        print(json_dumps(result.payload))
+        return 0
     if args.command == "openclaw" and args.openclaw_command == "capture-source":
         try:
             packet_path = create_runtime_source_packet(

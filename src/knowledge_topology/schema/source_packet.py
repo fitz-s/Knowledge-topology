@@ -8,7 +8,7 @@ from typing import Any
 from knowledge_topology.ids import is_valid_id
 
 
-SOURCE_TYPES = {"local_draft", "github_artifact", "article_html", "pdf_arxiv"}
+SOURCE_TYPES = {"local_draft", "github_artifact", "article_html", "pdf_arxiv", "video_platform"}
 CONTENT_STATUSES = {"complete", "partial", "blocked", "paywalled", "missing"}
 CONTENT_MODES = {"public_text", "excerpt_only", "local_blob"}
 REDISTRIBUTABLE_VALUES = {"yes", "no", "unknown"}

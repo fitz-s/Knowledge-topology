@@ -13,6 +13,7 @@ sys.path.insert(0, str(SRC))
 from support_subjects import seed_subject_registry
 from knowledge_topology.adapters.openclaw_live import OpenClawLiveError
 from knowledge_topology.adapters.openclaw_live import canonical_json
+from knowledge_topology.adapters.openclaw_live import create_runtime_source_packet
 from knowledge_topology.adapters.openclaw_live import issue_openclaw_live_lease
 from knowledge_topology.adapters.openclaw_live import lease_openclaw_live_job
 from knowledge_topology.adapters.openclaw_live import run_openclaw_live_writeback
@@ -210,9 +211,9 @@ class P11OpenClawLiveTests(unittest.TestCase):
             source_id = new_id("src")
             digest_id = new_id("dg")
             summary = self.make_summary(source_id, digest_id)
-            summary["runtime_assumptions"][0]["statement"] = "see .openclaw/session token"
             lease = self.issue_and_lease(root, summary)
             self.write_bound_evidence(root, summary, lease.stem)
+            summary["runtime_assumptions"][0]["statement"] = "see .openclaw/session token"
             summary_path = self.write_summary_file(root, summary)
             with self.assertRaisesRegex(OpenClawLiveError, "private OpenClaw"):
                 run_openclaw_live_writeback(
@@ -225,6 +226,34 @@ class P11OpenClawLiveTests(unittest.TestCase):
                     runtime_summary_path=summary_path,
                 )
             self.assertEqual(list((root / "mutations/pending").glob("mut_*.json")), [])
+
+    def test_issue_and_capture_reject_private_summary_before_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            self.seed_projection(root)
+            summary = self.make_summary(new_id("src"), new_id("dg"))
+            summary["runtime_assumptions"][0]["statement"] = "/Users/test/.openclaw/session/token-secret"
+            with self.assertRaisesRegex(OpenClawLiveError, "private path|private OpenClaw"):
+                issue_openclaw_live_lease(
+                    root,
+                    project_id="openclaw_project",
+                    canonical_rev="rev_current",
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                    runtime_summary=summary,
+                )
+            with self.assertRaisesRegex(OpenClawLiveError, "private path|private OpenClaw"):
+                create_runtime_source_packet(
+                    root,
+                    project_id="openclaw_project",
+                    canonical_rev="rev_current",
+                    subject_repo_id="repo_knowledge_topology",
+                    subject_head_sha="abc123",
+                    runtime_summary=summary,
+                )
+            self.assertEqual(list((root / "ops/queue/writeback/pending").glob("job_*.json")), [])
+            self.assertEqual(list((root / "ops/queue/digest/pending").glob("job_*.json")), [])
+            self.assertEqual(list((root / "raw/packets").glob("src_*")), [])
 
     def test_fabricated_lease_and_replay_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

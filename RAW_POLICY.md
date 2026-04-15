@@ -27,6 +27,7 @@ Every source packet declares `redistributable`:
 | GitHub artifact | `public_text` for public permissive source, otherwise `excerpt_only` | Pin commit SHA or artifact ID. |
 | article/html | `excerpt_only` | Store canonical URL, fetch manifest, and limited excerpts. |
 | PDF/arXiv | `excerpt_only` plus optional `local_blob` | Do not track full PDFs by default. |
+| video platform URL | `excerpt_only` | Store locator, capture plan, and later operator-provided transcript/key-frame/audio artifacts. Do not assume a direct media download. |
 | audio/video transcript | `excerpt_only` plus optional `local_blob` | Defer full transcript tracking until rights are clear. |
 | social thread | `excerpt_only` | Preserve URL and limited quoted evidence. |
 
@@ -42,6 +43,12 @@ Until a stricter copyright-aware checker exists:
   when `redistributable=yes`
 - PDF/arXiv `public_text` is rejected in P11.3; store metadata/excerpt and
   optional local-only blob references instead
+- video platform URLs are locator-only by default; tracked packets may include
+  an operator-authored capture brief but not full media bytes or complete
+  third-party transcripts unless rights are clear
+- downloaded platform videos can be attached as local-only blob evidence with
+  `topology video attach-artifact`; tracked packets store hashes, byte lengths,
+  and storage hints only
 
 ## External Fetch Safety
 

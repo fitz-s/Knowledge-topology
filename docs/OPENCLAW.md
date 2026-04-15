@@ -3,6 +3,9 @@
 OpenClaw is a runtime consumer of this repository, not the owner of canonical
 topology truth.
 
+OpenClaw-side agents should follow `docs/OPENCLAW_AGENT.md` as their operating
+runbook.
+
 ## External Root
 
 Set `KNOWLEDGE_TOPOLOGY_ROOT` to this repository path when an OpenClaw runtime
@@ -12,6 +15,104 @@ files.
 
 Do not copy OpenClaw config, credentials, sessions, gateway state, or private
 workspace memory into this repository.
+
+## Consumer Bundle
+
+Install the workspace-local bundle from the topology repo:
+
+```bash
+topology bootstrap openclaw \
+  --topology-root "$KNOWLEDGE_TOPOLOGY_ROOT" \
+  --subject-path "<subject-repo-path>" \
+  --workspace "<openclaw-workspace-path>" \
+  --project-id "<runtime-project-id>"
+```
+
+The command writes only consumer-local wiring into the OpenClaw workspace:
+
+- workspace `AGENTS.md` marker block
+- workspace `TOPOLOGY_TOOL.md`
+
+Under `.openclaw/topology/` it writes:
+
+- `topology.env`
+- `TOOL.md`
+- `qmd-extra-paths.txt`
+- `resolve-context.sh`
+- `compose-openclaw.sh`
+- `doctor-openclaw.sh`
+- `capture-source.sh`
+- `issue-lease.sh`
+- `lease.sh`
+- `run-writeback.sh`
+- `video-ingest.sh`
+- `video-status.sh`
+- `video-attach-artifact.sh`
+- `video-prepare-digest.sh`
+- `video-trace.sh`
+- `skills/runtime-consume.md`
+- `skills/session-writeback.md`
+- `skills/topology-maintainer.md`
+- `skills/video-source-intake.md`
+
+The wrappers resolve fresh `canonical_rev`, `subject_repo_id`, and
+`subject_head_sha` at runtime. They do not hard-code stale revisions, copy the
+topology into the OpenClaw workspace, or grant canonical write authority.
+
+Recommended runtime flow:
+
+1. Run `.openclaw/topology/compose-openclaw.sh`.
+2. Run `.openclaw/topology/doctor-openclaw.sh`.
+3. Read only the projection files listed in `qmd-extra-paths.txt`.
+4. Capture runtime evidence with `.openclaw/topology/capture-source.sh`.
+5. After digest evidence exists, use `.openclaw/topology/issue-lease.sh`,
+   `.openclaw/topology/lease.sh`, and
+   `.openclaw/topology/run-writeback.sh` with an enriched summary that includes
+   `source_id`, `digest_id`, and evidence bound to the leased job.
+
+`capture-source.sh` is a low-level capture primitive. It creates source
+evidence and digest queue work; it does not make the original runtime summary
+ready for `run-writeback.sh` by itself.
+
+Use `topology doctor consumer --workspace "<openclaw-workspace-path>"` to
+check generated bundle drift. Use
+`topology bootstrap remove --workspace "<openclaw-workspace-path>"` to remove
+unchanged generated bundle files recorded in the manifest.
+
+## Video Operator Protocol
+
+OpenClaw must not summarize video content from title, description, or chapter
+lists. A `video_platform` locator packet is not learned video knowledge.
+
+Video deep digest requires real modality evidence:
+
+- transcript: platform captions, audio transcription, or human transcript
+- key frames: frame extraction, vision frame analysis, or human frame notes
+- audio summary: audio-derived model summary or human audio summary
+
+Page-visible excerpts, page-visible chapter lists, and inferred page summaries
+are shallow locator evidence only. They must not be labeled as transcript, key
+frames, or audio summary for deep digest readiness.
+
+No `dg_` path means no digest. No `mut_` path means no proposal.
+
+If `video-trace.sh` reports `shallow_evidence`, OpenClaw's next valid action is
+to run:
+
+```bash
+.openclaw/topology/video-provider-run.sh --source-id "<src_...>"
+```
+
+This wrapper processes topology-staged trusted provider output only. It does
+not accept artifact directories, attestation manifests, or trusted flags from
+the agent. If no staged trusted bundle exists, report the blocker and stop.
+
+Provider-side staging is separate from OpenClaw. A trusted operator/provider
+uses `topology video provider-keygen --root <topology-root>` and
+`topology video provider-stage` outside the OpenClaw workspace to create the
+bundle consumed by `video-provider-run.sh`. Provider public keys enter
+`ops/keys/video_provider_public_keys.json` only through reviewed topology
+changes; OpenClaw must not register trust roots.
 
 ## Runtime Projection
 

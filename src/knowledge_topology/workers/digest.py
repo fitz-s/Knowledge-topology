@@ -23,6 +23,14 @@ class DigestWorkerError(ValueError):
 
 
 MAX_REQUEST_SOURCE_TEXT = 8000
+VIDEO_TEXT_ARTIFACT_PATHS = {
+    "transcript.md",
+    "key_frames.md",
+    "audio_summary.md",
+    "landing_page_metadata.md",
+}
+VIDEO_TEXT_ARTIFACT_KINDS = {"transcript", "key_frames", "audio_summary", "landing_page_metadata"}
+VIDEO_ARTIFACT_KINDS = {"video_file", *VIDEO_TEXT_ARTIFACT_KINDS}
 PACKET_METADATA_FIELDS = [
     "id",
     "source_type",
@@ -56,9 +64,21 @@ ARTIFACT_FIELDS = {
     "commit_sha",
     "mutable_ref",
     "raw_url",
+    "url",
+    "platform",
+    "host",
+    "shortlink",
+    "requires_operator_capture",
+    "recommended_artifacts",
+    "artifact_kind",
+    "source_hash_sha256",
+    "evidence_origin",
+    "coverage",
+    "modality",
+    "evidence_attestation",
 }
-SAFE_ARTIFACT_PATHS = {"content.md", "excerpt.md"}
-SAFE_URL_FIELDS = {"final_url", "raw_url", "abs_url", "pdf_url"}
+SAFE_ARTIFACT_PATHS = {"content.md", "excerpt.md", *VIDEO_TEXT_ARTIFACT_PATHS}
+SAFE_URL_FIELDS = {"final_url", "raw_url", "abs_url", "pdf_url", "url"}
 SAFE_TOKEN_FIELDS = {"repo", "ref", "path", "commit_sha", "number", "arxiv_id"}
 
 
@@ -122,7 +142,7 @@ def bounded_source_text(text: str) -> str:
 
 
 def safe_packet_text_file(packet_dir: Path, filename: str) -> str | None:
-    if filename not in {"content.md", "excerpt.md"}:
+    if filename not in SAFE_ARTIFACT_PATHS:
         raise DigestWorkerError("unsupported source text filename")
     if packet_dir.is_symlink() or not packet_dir.is_dir():
         raise DigestWorkerError("source packet directory is unsafe")
@@ -167,6 +187,15 @@ def sanitized_artifacts(source_packet: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(value, int):
                 sanitized[field] = value
                 continue
+            if field == "recommended_artifacts" and isinstance(value, list):
+                safe_items = [
+                    item
+                    for item in value
+                    if isinstance(item, str) and re.fullmatch(r"[A-Za-z0-9_:-]+", item)
+                ]
+                if safe_items:
+                    sanitized[field] = safe_items[:20]
+                continue
             if value is None:
                 continue
             if not isinstance(value, str) or not value.strip():
@@ -189,12 +218,20 @@ def safe_artifact_string(field: str, value: str, artifact_kind: Any) -> bool:
         if artifact_kind == "github_blob":
             return bool(re.fullmatch(r"[A-Za-z0-9_./@+-]+", value)) and ".." not in Path(value).parts
         return False
+    if field == "artifact_kind":
+        return value in VIDEO_ARTIFACT_KINDS
+    if field == "platform":
+        return bool(re.fullmatch(r"[A-Za-z0-9_-]+", value))
+    if field == "host":
+        return bool(re.fullmatch(r"[A-Za-z0-9_.-]+", value))
     if field in SAFE_URL_FIELDS:
         return value.startswith("http://") or value.startswith("https://")
     if field == "repo":
         return bool(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value))
     if field in SAFE_TOKEN_FIELDS:
         return bool(re.fullmatch(r"[A-Za-z0-9_./@+-]+", value))
+    if field == "source_hash_sha256":
+        return bool(re.fullmatch(r"sha256:[0-9a-f]{64}", value))
     return True
 
 
@@ -222,6 +259,42 @@ def build_digest_model_request(root: str | Path, source_id: str) -> DigestModelR
     elif packet.content_mode == "excerpt_only":
         source_text = safe_packet_text_file(packet_dir, "excerpt.md")
         source_text_kind = "excerpt.md" if source_text is not None else None
+    if packet.source_type == "video_platform":
+        from knowledge_topology.workers.video import video_text_deep_ready
+
+        sections = []
+        if source_text is not None:
+            sections.append(("locator_excerpt", source_text))
+        attached_text_kinds = set()
+        shallow_rejections = []
+        for artifact in source_packet.get("artifacts", []):
+            if not isinstance(artifact, dict) or artifact.get("kind") != "video_text_artifact":
+                continue
+            artifact_kind = artifact.get("artifact_kind")
+            path = artifact.get("path")
+            if artifact_kind not in VIDEO_TEXT_ARTIFACT_KINDS or path not in VIDEO_TEXT_ARTIFACT_PATHS:
+                continue
+            text = safe_packet_text_file(packet_dir, path)
+            if text:
+                if video_text_deep_ready(packet_dir, str(artifact_kind), artifact):
+                    attached_text_kinds.add(str(artifact_kind))
+                    sections.append((str(artifact_kind), text))
+                else:
+                    shallow_rejections.append(str(artifact_kind))
+        missing = {"transcript", "key_frames", "audio_summary"} - attached_text_kinds
+        if missing:
+            suffix = ""
+            if shallow_rejections:
+                suffix = "; shallow-only artifacts cannot satisfy deep digest: " + ", ".join(sorted(set(shallow_rejections)))
+            raise DigestWorkerError(
+                "video_platform source is not ready for deep digest; missing artifacts: "
+                + ", ".join(sorted(missing))
+                + suffix
+            )
+        if sections:
+            joined = "\n\n".join(f"## {label}\n{text}" for label, text in sections)
+            source_text = bounded_source_text(joined)
+            source_text_kind = "video_artifacts"
 
     prompt = prompt_for_depth(paths.root, packet.ingest_depth)
     return DigestModelRequest(

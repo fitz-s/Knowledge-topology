@@ -1,0 +1,100 @@
+{
+  "base_canonical_rev": "584bea2915e590f5acffd6bdab4d27a11be3ffe4",
+  "changes": [
+    {
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP72B28EP2W3M4XCY0J4273H",
+      "node_id": "nd_01KP72BQB93K8NRSMV60HYE9ZR",
+      "op": "propose_node",
+      "reason": "Platform video URLs are modeled as video_platform locator packets instead of ordinary article fetches or direct media downloads.",
+      "source_id": "src_01KP72B28EEEMDPHN6A8SWR4PK",
+      "status": "draft",
+      "type": "decision"
+    },
+    {
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP72B28EP2W3M4XCY0J4273H",
+      "file_refs": [],
+      "name": "video_platform source intake",
+      "node_id": "nd_01KP72BQB9Q6SMBFSRSKX8HM8J",
+      "op": "propose_node",
+      "reason": "Agents may feed platform video URLs, including Douyin short links with share text, to topology ingest and receive a public-safe locator packet plus capture-plan excerpt without network media fetching.",
+      "source_id": "src_01KP72B28EEEMDPHN6A8SWR4PK",
+      "status": "draft",
+      "type": "interface"
+    },
+    {
+      "audiences": [
+        "openclaw"
+      ],
+      "authority": "runtime_observed",
+      "digest_id": "dg_01KP72B28EP2W3M4XCY0J4273H",
+      "node_id": "nd_01KP72BQB9G0CD48MDSXMFM32Z",
+      "observed_in": "real-test Douyin ingest smoke",
+      "op": "propose_node",
+      "reason": "Most social video links are platform locators that may redirect through app flows and do not expose a stable public media download URL.",
+      "scope": "runtime",
+      "sensitivity": "runtime_only",
+      "source_id": "src_01KP72B28EEEMDPHN6A8SWR4PK",
+      "status": "draft",
+      "type": "runtime_observation"
+    },
+    {
+      "applies_to": "future video/social source ingestion",
+      "authority": "repo_observed",
+      "digest_id": "dg_01KP72B28EP2W3M4XCY0J4273H",
+      "node_id": "nd_01KP72BQB9DEHQ001NZAF83BBF",
+      "op": "propose_node",
+      "reason": "Treat platform video intake as a two-step evidence workflow: capture the locator first, then attach transcript, key-frame descriptions, audio summary, or local blob evidence explicitly.",
+      "source_id": "src_01KP72B28EEEMDPHN6A8SWR4PK",
+      "status": "draft",
+      "type": "task_lesson"
+    }
+  ],
+  "evidence_refs": [
+    "dg_01KP72B28EP2W3M4XCY0J4273H",
+    "src_01KP72B28EEEMDPHN6A8SWR4PK"
+  ],
+  "human_gate_class": null,
+  "id": "mut_01KP72BQB94RB8E8XGEPFPRSVF",
+  "merge_confidence": "medium",
+  "metadata": {
+    "commands_run": [
+      {
+        "command": "topology ingest Douyin shortlink smoke in a temp root",
+        "exit_code": 0,
+        "notes": "confirmed the provided Douyin shortlink creates a video_platform packet and digest job"
+      }
+    ],
+    "file_refs": [],
+    "tests_run": [
+      {
+        "command": "PYTHONPATH=src python -m pytest tests/test_p11_3_fetch_v2.py tests/test_p2_source_packet_fetch.py -q",
+        "notes": "focused video platform and fetch regression suite",
+        "result": "passed"
+      },
+      {
+        "command": "PYTHONPATH=src python -m pytest -q",
+        "notes": "full repository suite",
+        "result": "passed"
+      },
+      {
+        "command": "PYTHONPATH=src python -m compileall -q src tests",
+        "notes": "syntax check",
+        "result": "passed"
+      },
+      {
+        "command": "git diff --check",
+        "notes": "whitespace check",
+        "result": "passed"
+      }
+    ],
+    "writeback_summary": ".tmp/video_platform_intake_writeback.json"
+  },
+  "proposal_type": "session_writeback",
+  "proposed_by": "writeback",
+  "requires_human": false,
+  "schema_version": "1.0",
+  "subject_head_sha": "584bea2915e590f5acffd6bdab4d27a11be3ffe4",
+  "subject_repo_id": "repo_knowledge_topology"
+}

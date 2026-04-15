@@ -35,6 +35,7 @@ class P2SourcePacketFetchTests(unittest.TestCase):
         self.assertEqual(classify_source("https://github.com/fitz-s/Knowledge-topology/pull/1"), "github_artifact")
         self.assertEqual(classify_source("https://example.com/post"), "article_html")
         self.assertEqual(classify_source("https://arxiv.org/abs/2401.00001"), "pdf_arxiv")
+        self.assertEqual(classify_source("https://v.douyin.com/6l8q1jGwRl4/"), "video_platform")
         self.assertEqual(classify_source("paper.pdf"), "pdf_arxiv")
 
     def test_public_text_requires_redistributable_yes(self):
@@ -190,6 +191,7 @@ class P2SourcePacketFetchTests(unittest.TestCase):
             ("https://github.com/fitz-s/Knowledge-topology/blob/main/README.md", "github_artifact"),
             ("https://example.com/article", "article_html"),
             ("https://arxiv.org/pdf/2401.00001.pdf", "pdf_arxiv"),
+            ("https://www.youtube.com/watch?v=abc123", "video_platform"),
         ]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -315,6 +317,64 @@ class P2SourcePacketFetchTests(unittest.TestCase):
             )
             self.assertEqual(good.returncode, 0, good.stderr)
             self.assertIn("created source packet:", good.stdout)
+
+            video = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "knowledge_topology.cli",
+                    "ingest",
+                    "https://v.douyin.com/6l8q1jGwRl4/",
+                    "--root",
+                    tmp,
+                    "--note",
+                    "video note",
+                    "--subject",
+                    "repo_knowledge_topology",
+                    "--subject-head-sha",
+                    "abc123",
+                    "--base-canonical-rev",
+                    "rev_current",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(video.returncode, 0, video.stderr)
+            packet_path = Path(next(line.split(": ", 1)[1] for line in video.stdout.splitlines() if line.startswith("created source packet:")))
+            source_id = json.loads(packet_path.read_text(encoding="utf-8"))["id"]
+            downloaded = root / "downloaded.mp4"
+            downloaded.write_bytes(b"video bytes")
+            attached = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "knowledge_topology.cli",
+                    "video",
+                    "attach-artifact",
+                    "--root",
+                    tmp,
+                    "--source-id",
+                    source_id,
+                    "--artifact-kind",
+                    "video_file",
+                    "--artifact-path",
+                    str(downloaded),
+                    "--note",
+                    "operator download",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(attached.returncode, 0, attached.stderr)
+            self.assertIn("updated video source packet:", attached.stdout)
 
 
 if __name__ == "__main__":

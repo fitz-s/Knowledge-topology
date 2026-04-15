@@ -174,6 +174,12 @@ def run_digest_queue(
                 source_id=source_id,
                 model_adapter=DictDigestAdapter(payload),
             )
+            completed_job = read_job(leased_path)
+            completed_payload = completed_job.setdefault("payload", {})
+            if isinstance(completed_payload, dict):
+                completed_payload["digest_id"] = digest_json.stem
+                completed_payload["digest_json_path"] = str(digest_json.relative_to(TopologyPaths.from_root(root).root))
+            write_job(leased_path, completed_job)
             done_paths.append(complete_job(leased_path))
             json_paths.append(digest_json)
             md_paths.append(digest_md)

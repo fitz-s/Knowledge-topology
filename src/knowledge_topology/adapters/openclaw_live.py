@@ -167,6 +167,7 @@ def issue_openclaw_live_lease(
     created_by: str = "openclaw-live-issuer",
 ) -> Path:
     paths = TopologyPaths.from_root(root)
+    assert_no_private_strings(runtime_summary)
     digest = summary_hash(runtime_summary)
     nonce = secrets.token_hex(16)
     pending = create_job(
@@ -496,6 +497,7 @@ def create_runtime_source_packet(
     runtime_summary: dict[str, Any],
 ) -> Path:
     paths = TopologyPaths.from_root(root)
+    assert_no_private_strings(runtime_summary)
     digest_hash = summary_hash(runtime_summary)
     source_id = new_id("src")
     packet_dir = paths.ensure_dir(f"raw/packets/{source_id}")
