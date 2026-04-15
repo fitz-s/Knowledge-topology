@@ -77,7 +77,8 @@ Gemini final verdict: unavailable. The Gemini CLI invocation did not return
 within the working window and was terminated. Earlier package validations in
 this repository also encountered Gemini capacity failures.
 
-Waiver: not yet granted.
+Waiver: user explicitly waived Gemini on 2026-04-14 / 2026-04-15 and requested
+continuing to the next package if Gemini remains unavailable.
 
 ## Residual Risks
 
@@ -85,9 +86,9 @@ Waiver: not yet granted.
   installed Python package with `knowledge_topology` importable.
 - Bootstrap writes consumer-local files and depends on manifest/doctor checks
   to detect later user modification.
-- P12.1 cannot be marked approved until Gemini is available or explicitly
-  waived by the user.
+- Gemini validation remains unavailable in this environment; this package
+  proceeds under explicit user waiver.
 
 ## Final Decision
 
-`blocked`
+`waived_by_user`

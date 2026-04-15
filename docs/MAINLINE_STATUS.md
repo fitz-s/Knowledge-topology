@@ -37,7 +37,7 @@ contract.
 | P11.6 Subject / File-Index | waived_by_user | `docs/package-plans/P11_6_SUBJECT_FILE_INDEX.md` | `docs/package-reviews/P11_6_UNFREEZE.md` |
 | P11.7 Video Platform Ingest | approved | `docs/package-plans/P11_7_VIDEO_PLATFORM_INGEST.md` | `docs/package-reviews/P11_7_UNFREEZE.md` |
 | P12.0 State Convergence Patch | approved | `docs/package-plans/P12_USAGE_CLOSURE.md` | `docs/package-reviews/P12_0_UNFREEZE.md` |
-| P12.1 Consumer Bootstrap | in_progress | `docs/package-plans/P12_1_CONSUMER_BOOTSTRAP.md` | `docs/package-reviews/P12_1_UNFREEZE.md` |
+| P12.1 Consumer Bootstrap | waived_by_user | `docs/package-plans/P12_1_CONSUMER_BOOTSTRAP.md` | `docs/package-reviews/P12_1_UNFREEZE.md` |
 
 ## Shipped CLI Reality
 
