@@ -24,6 +24,7 @@ class VideoWorkflowError(ValueError):
 
 REQUIRED_TEXT_ARTIFACTS = ["transcript", "key_frames", "audio_summary"]
 OPTIONAL_ARTIFACTS = ["video_file", "landing_page_metadata"]
+TEXT_ARTIFACT_PATHS = {"transcript.md", "key_frames.md", "audio_summary.md", "landing_page_metadata.md"}
 PROVIDERS = {"manual-upload", "youtube", "yt-dlp", "browser-capture"}
 TRANSCRIBERS = {"none", "whisper", "provider"}
 VISION_PROVIDERS = {"none", "gemini", "openai"}
@@ -43,6 +44,7 @@ def video_status(root: str | Path, source_id: str) -> dict[str, Any]:
     if packet.source_type != "video_platform":
         raise VideoWorkflowError("source packet is not video_platform")
     present = set()
+    text_ready = set()
     local_blob_bytes = 0
     for artifact in packet.artifacts:
         if not isinstance(artifact, dict):
@@ -50,9 +52,11 @@ def video_status(root: str | Path, source_id: str) -> dict[str, Any]:
         artifact_kind = artifact.get("artifact_kind")
         if isinstance(artifact_kind, str):
             present.add(artifact_kind)
+            if artifact.get("kind") == "video_text_artifact" and video_text_artifact_readable(packet_path.parent, artifact):
+                text_ready.add(artifact_kind)
         if artifact.get("kind") == "local_blob_ref" and isinstance(artifact.get("byte_length"), int):
             local_blob_bytes += artifact["byte_length"]
-    missing = [kind for kind in REQUIRED_TEXT_ARTIFACTS if kind not in present]
+    missing = [kind for kind in REQUIRED_TEXT_ARTIFACTS if kind not in text_ready]
     optional_missing = [kind for kind in OPTIONAL_ARTIFACTS if kind not in present]
     ready = not missing
     return {
@@ -60,11 +64,22 @@ def video_status(root: str | Path, source_id: str) -> dict[str, Any]:
         "packet_path": str(packet_path),
         "ready_for_deep_digest": ready,
         "present_artifacts": sorted(present),
+        "text_ready_artifacts": sorted(text_ready),
         "missing_required_artifacts": missing,
         "missing_optional_artifacts": optional_missing,
         "local_blob_bytes": local_blob_bytes,
         "next_actions": missing_actions(missing),
     }
+
+
+def video_text_artifact_readable(packet_dir: Path, artifact: dict[str, Any]) -> bool:
+    path = artifact.get("path")
+    if not isinstance(path, str) or path not in TEXT_ARTIFACT_PATHS:
+        return False
+    target = packet_dir / path
+    if target.is_symlink() or not target.is_file():
+        return False
+    return target.parent.resolve() == packet_dir.resolve()
 
 
 def missing_actions(missing: list[str]) -> list[str]:

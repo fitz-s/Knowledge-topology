@@ -31,10 +31,10 @@ git diff --check
 
 Results:
 
-- P12.2 focused suite: `4 passed`.
+- P12.2 focused suite after blocker fixes: `5 passed`.
 - Focused P12.2/P11.3/P2/P10 suite after blocker fixes:
-  `33 passed, 26 subtests passed`.
-- Full suite after blocker fixes: `208 passed, 44 subtests passed`.
+  `34 passed, 26 subtests passed`.
+- Full suite after blocker fixes: `209 passed, 44 subtests passed`.
 - `compileall`: clean.
 - `git diff --check`: clean.
 
@@ -46,6 +46,9 @@ Reviewer blocker addressed:
 
 - `MAINLINE_STATUS.md` and this unfreeze record now agree before declaring
   P12.2 complete.
+- `prepare-digest` now treats only readable tracked text artifacts as
+  digest-ready evidence; local-only blob refs do not satisfy transcript,
+  key-frame, or audio-summary readiness.
 
 ## Critic Verdict
 

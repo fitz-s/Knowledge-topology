@@ -12,6 +12,7 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from knowledge_topology.workers.fetch import attach_video_artifact
+from knowledge_topology.workers.digest import DigestWorkerError, build_digest_model_request
 from knowledge_topology.workers.init import init_topology
 
 
@@ -112,10 +113,37 @@ class P12VideoMediaClosureTests(unittest.TestCase):
             self.assertEqual(status.returncode, 0, status.stderr)
             payload = json.loads(status.stdout)
             self.assertTrue(payload["ready_for_deep_digest"])
+            self.assertEqual(payload["text_ready_artifacts"], ["audio_summary", "key_frames", "transcript"])
             self.assertEqual(payload["missing_required_artifacts"], [])
             prepare = cli("video", "prepare-digest", "--root", str(root), "--source-id", source_id)
             self.assertEqual(prepare.returncode, 0, prepare.stderr)
             self.assertTrue(json.loads(prepare.stdout)["digest_ready"])
+
+    def test_prepare_digest_ignores_required_artifacts_that_are_only_local_blobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            init_topology(root)
+            source_id, _ = video_ingest(root)
+            for kind in ["transcript", "key_frames", "audio_summary"]:
+                path = root / f"{kind}.bin"
+                path.write_bytes(b"local only")
+                attach_video_artifact(
+                    root,
+                    source_id=source_id,
+                    artifact_kind=kind,
+                    artifact_path=path,
+                    track_text=False,
+                )
+            status = cli("video", "status", "--root", str(root), "--source-id", source_id)
+            self.assertEqual(status.returncode, 1)
+            payload = json.loads(status.stdout)
+            self.assertEqual(payload["present_artifacts"], ["audio_summary", "key_frames", "transcript"])
+            self.assertEqual(payload["text_ready_artifacts"], [])
+            self.assertEqual(payload["missing_required_artifacts"], ["transcript", "key_frames", "audio_summary"])
+            prepare = cli("video", "prepare-digest", "--root", str(root), "--source-id", source_id)
+            self.assertEqual(prepare.returncode, 1)
+            with self.assertRaisesRegex(DigestWorkerError, "missing artifacts"):
+                build_digest_model_request(root, source_id)
 
 
 if __name__ == "__main__":
