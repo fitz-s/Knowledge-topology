@@ -52,6 +52,7 @@ class P10MainlineClosureTests(unittest.TestCase):
             "docs/package-plans/P11_5_LINT_DOCTOR_SPLIT.md",
             "docs/package-plans/P11_6_SUBJECT_FILE_INDEX.md",
             "docs/package-plans/P11_7_VIDEO_PLATFORM_INGEST.md",
+            "docs/package-plans/P12_1_CONSUMER_BOOTSTRAP.md",
         ]:
             self.assertTrue((ROOT / plan).exists(), plan)
             self.assertIn(plan, status)
@@ -63,6 +64,7 @@ class P10MainlineClosureTests(unittest.TestCase):
             "docs/package-reviews/P11_5_UNFREEZE.md",
             "docs/package-reviews/P11_6_UNFREEZE.md",
             "docs/package-reviews/P11_7_UNFREEZE.md",
+            "docs/package-reviews/P12_1_UNFREEZE.md",
         ]:
             self.assertTrue((ROOT / review).exists(), review)
             self.assertIn(review, status)
@@ -95,7 +97,7 @@ class P10MainlineClosureTests(unittest.TestCase):
     def test_cli_reality_matches_status(self):
         plan = read("docs/IMPLEMENTATION_PLAN.md")
         top_help = cli("--help")
-        for command in ["init", "ingest", "digest", "reconcile", "apply", "subject", "compose", "lint", "doctor", "writeback", "agent-guard", "openclaw", "video"]:
+        for command in ["init", "ingest", "digest", "reconcile", "apply", "subject", "compose", "lint", "doctor", "writeback", "agent-guard", "openclaw", "video", "bootstrap", "resolve-context"]:
             self.assertIn(command, top_help)
             self.assertIn(f"topology {command}", plan)
 
@@ -114,9 +116,13 @@ class P10MainlineClosureTests(unittest.TestCase):
         video_help = cli("video", "--help")
         self.assertIn("attach-artifact", video_help)
 
+        bootstrap_help = cli("bootstrap", "--help")
+        for shipped in ["codex", "claude", "openclaw", "remove"]:
+            self.assertIn(shipped, bootstrap_help)
+
         doctor_help = cli("doctor", "--help")
         self.assertIn("stale-anchors", doctor_help)
-        for shipped in ["queues", "public-safe", "projections", "canonical-parity"]:
+        for shipped in ["queues", "public-safe", "projections", "canonical-parity", "consumer"]:
             self.assertIn(shipped, doctor_help)
 
     def test_p10_plan_and_unfreeze_contract_are_declared(self):

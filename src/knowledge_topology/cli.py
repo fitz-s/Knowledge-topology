@@ -21,6 +21,11 @@ from knowledge_topology.adapters.openclaw_live import lease_openclaw_live_job
 from knowledge_topology.adapters.openclaw_live import run_openclaw_live_writeback
 from knowledge_topology.workers.agent_guard import guard_claude_pre_tool_use
 from knowledge_topology.workers.apply import ApplyError, apply_mutation
+from knowledge_topology.workers.bootstrap import BootstrapError
+from knowledge_topology.workers.bootstrap import bootstrap_consumer
+from knowledge_topology.workers.bootstrap import doctor_consumer
+from knowledge_topology.workers.bootstrap import remove_bootstrap
+from knowledge_topology.workers.bootstrap import resolve_context
 from knowledge_topology.workers.compose_builder import ComposeError, write_builder_pack
 from knowledge_topology.workers.compose_openclaw import OpenClawComposeError, write_openclaw_projection
 from knowledge_topology.workers.doctor import doctor_canonical_parity
@@ -106,6 +111,25 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
     apply_parser.add_argument("--approve-human", action="store_true", help="approve human-gated mutation")
 
+    resolve_context_parser = subparsers.add_parser("resolve-context", help="resolve topology/subject context")
+    resolve_context_parser.add_argument("--topology-root", required=True, help="topology root")
+    resolve_context_parser.add_argument("--subject-path", required=True, help="subject repo path")
+    resolve_context_parser.add_argument("--json", action="store_true", help="emit JSON")
+
+    bootstrap_parser = subparsers.add_parser("bootstrap", help="install consumer repo topology wiring")
+    bootstrap_subparsers = bootstrap_parser.add_subparsers(dest="bootstrap_command")
+    for name in ["codex", "claude"]:
+        sub = bootstrap_subparsers.add_parser(name, help=f"bootstrap {name} consumer wiring")
+        sub.add_argument("--topology-root", required=True, help="topology root")
+        sub.add_argument("--subject-path", required=True, help="subject repo path")
+    openclaw_bootstrap = bootstrap_subparsers.add_parser("openclaw", help="bootstrap OpenClaw workspace wiring")
+    openclaw_bootstrap.add_argument("--topology-root", required=True, help="topology root")
+    openclaw_bootstrap.add_argument("--subject-path", required=True, help="subject repo path")
+    openclaw_bootstrap.add_argument("--workspace", required=True, help="OpenClaw workspace path")
+    openclaw_bootstrap.add_argument("--project-id", required=True, help="OpenClaw runtime project id")
+    bootstrap_remove = bootstrap_subparsers.add_parser("remove", help="remove generated consumer wiring")
+    bootstrap_remove.add_argument("--subject-path", required=True, help="subject repo path")
+
     subject_parser = subparsers.add_parser("subject", help="manage subject registry")
     subject_subparsers = subject_parser.add_subparsers(dest="subject_command")
     subject_add = subject_subparsers.add_parser("add", help="add a subject registry entry")
@@ -169,6 +193,9 @@ def build_parser() -> argparse.ArgumentParser:
     canonical_parity_parser.add_argument("--root", default=".", help="topology root")
     public_safe_parser = doctor_subparsers.add_parser("public-safe", help="report public-safe source packet issues")
     public_safe_parser.add_argument("--root", default=".", help="topology root")
+    consumer_parser = doctor_subparsers.add_parser("consumer", help="report external consumer wiring health")
+    consumer_parser.add_argument("--topology-root", required=True, help="topology root")
+    consumer_parser.add_argument("--subject-path", required=True, help="subject repo path")
 
     video_parser = subparsers.add_parser("video", help="attach operator-captured video evidence")
     video_subparsers = video_parser.add_subparsers(dest="video_command")
@@ -368,6 +395,42 @@ def main(argv: list[str] | None = None) -> int:
         print(f"applied mutation pack: {applied_path}")
         print(f"wrote audit event: {event_path}")
         return 0
+    if args.command == "resolve-context":
+        try:
+            payload = resolve_context(args.topology_root, args.subject_path)
+        except (BootstrapError, ValueError) as exc:
+            parser.exit(2, f"topology resolve-context: {exc}\n")
+        if args.json:
+            print(json_dumps(payload))
+        else:
+            for key in ["topology_root", "subject_path", "subject_repo_id", "canonical_rev", "subject_head_sha"]:
+                print(f"{key}: {payload[key]}")
+        return 0
+    if args.command == "bootstrap" and args.bootstrap_command in {"codex", "claude", "openclaw"}:
+        try:
+            result = bootstrap_consumer(
+                args.topology_root,
+                args.subject_path,
+                target=args.bootstrap_command,
+                workspace=getattr(args, "workspace", None),
+                project_id=getattr(args, "project_id", None),
+            )
+        except (BootstrapError, ValueError) as exc:
+            parser.exit(2, f"topology bootstrap {args.bootstrap_command}: {exc}\n")
+        print(f"bootstrapped {args.bootstrap_command}: {result.manifest_path}")
+        for path in result.written:
+            print(f"wrote: {path}")
+        for path in result.skipped:
+            print(f"preserved modified generated file: {path}")
+        return 0
+    if args.command == "bootstrap" and args.bootstrap_command == "remove":
+        try:
+            result = remove_bootstrap(args.subject_path)
+        except (BootstrapError, ValueError) as exc:
+            parser.exit(2, f"topology bootstrap remove: {exc}\n")
+        for message in result.messages:
+            print(message)
+        return 0 if result.ok else 1
     if args.command == "subject" and args.subject_command == "add":
         try:
             payload = add_subject(
@@ -481,6 +544,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result.ok else 1
     if args.command == "doctor" and args.doctor_command == "public-safe":
         result = doctor_public_safe(Path(args.root).expanduser().resolve())
+        for message in result.messages:
+            print(message)
+        return 0 if result.ok else 1
+    if args.command == "doctor" and args.doctor_command == "consumer":
+        try:
+            result = doctor_consumer(args.topology_root, args.subject_path)
+        except (BootstrapError, ValueError) as exc:
+            parser.exit(2, f"topology doctor consumer: {exc}\n")
         for message in result.messages:
             print(message)
         return 0 if result.ok else 1

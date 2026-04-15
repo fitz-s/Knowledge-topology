@@ -394,6 +394,8 @@ Current shipped CLI commands:
 - `topology agent-guard`
 - `topology openclaw`
 - `topology video`
+- `topology bootstrap`
+- `topology resolve-context`
 
 P0-P9 shipped doctor subcommands:
 
@@ -426,6 +428,19 @@ Video evidence commands:
 - `topology video attach-artifact`: bind local video, transcript, key-frame,
   audio summary, or landing metadata artifacts to a `video_platform` source
   packet.
+
+Consumer bootstrap commands:
+
+- `topology resolve-context`: compute topology and subject revision context for
+  wrappers.
+- `topology bootstrap codex`: generate Codex local topology wiring.
+- `topology bootstrap claude`: generate Claude local topology wiring and merge
+  hook settings.
+- `topology bootstrap openclaw`: generate OpenClaw workspace topology snippets.
+- `topology bootstrap remove`: remove unchanged manifest-recorded generated
+  wiring.
+- `topology doctor consumer`: report missing, modified, or stale consumer
+  wiring.
 
 Adapters may call the CLI or library, but must not implement separate business
 rules.
