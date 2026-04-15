@@ -44,6 +44,7 @@ contract.
 | P12.5 Evaluation / Benchmark | approved | `docs/package-plans/P12_5_EVALUATION_BENCHMARK.md` | `docs/package-reviews/P12_5_UNFREEZE.md` |
 | P13.0 Video Evidence Discipline | approved | `docs/package-plans/P13_0_VIDEO_EVIDENCE_DISCIPLINE.md` | `docs/package-reviews/P13_0_UNFREEZE.md` |
 | P13.1 Trusted Video Provider | approved | `docs/package-plans/P13_1_TRUSTED_VIDEO_PROVIDER.md` | `docs/package-reviews/P13_1_UNFREEZE.md` |
+| P13.2 Local Video Provider Generator | approved | `docs/package-plans/P13_2_LOCAL_VIDEO_PROVIDER_GENERATOR.md` | `docs/package-reviews/P13_2_UNFREEZE.md` |
 
 ## Shipped CLI Reality
 
@@ -100,6 +101,8 @@ Shipped video subcommands:
 - `topology video status`
 - `topology video trace`
 - `topology video provider-run`
+- `topology video provider-keygen`
+- `topology video provider-stage`
 - `topology video prepare-digest`
 - `topology video attach-artifact`
 

@@ -42,7 +42,7 @@ from knowledge_topology.workers.video import prepare_digest as prepare_video_dig
 from knowledge_topology.workers.video import video_ingest
 from knowledge_topology.workers.video import video_status
 from knowledge_topology.workers.video import video_trace
-from knowledge_topology.workers.video_provider import VideoProviderError, run_video_provider
+from knowledge_topology.workers.video_provider import VideoProviderError, generate_provider_keypair, run_video_provider, stage_video_provider_bundle_from_key
 from knowledge_topology.workers.writeback import WritebackError, writeback_session
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
 from knowledge_topology.workers.fetch import FetchError, attach_video_artifact, ingest_source
@@ -259,6 +259,20 @@ def build_parser() -> argparse.ArgumentParser:
     video_provider.add_argument("--subject-head-sha", help="subject HEAD SHA for --auto-digest")
     video_provider.add_argument("--base-canonical-rev", help="base canonical revision for --auto-digest")
     video_provider.add_argument("--audience", choices=["builders", "openclaw", "all"], default="all", help="digest audience")
+    video_keygen = video_subparsers.add_parser("provider-keygen", help="generate a local video provider keypair")
+    video_keygen.add_argument("--root", default=".", help="topology root used to reject in-repo key output")
+    video_keygen.add_argument("--output-dir", required=True, help="directory for generated key files")
+    video_keygen.add_argument("--key-id", required=True, help="provider key id")
+    video_keygen.add_argument("--provider-name", default="local-provider", help="provider display token")
+    video_stage = video_subparsers.add_parser("provider-stage", help="stage a signed trusted video provider bundle")
+    video_stage.add_argument("--root", default=".", help="topology root")
+    video_stage.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_stage.add_argument("--artifact-dir", required=True, help="directory with transcript.md, key_frames.md, audio_summary.md")
+    video_stage.add_argument("--provider-root", required=True, help="external trusted provider root")
+    video_stage.add_argument("--private-key-file", required=True, help="provider private key JSON file")
+    video_stage.add_argument("--provider-key-id", help="provider key id")
+    video_stage.add_argument("--provider-name", help="provider name")
+    video_stage.add_argument("--attested-by", choices=["provider", "operator"], default="provider", help="attestation authority")
 
     supervisor_parser = subparsers.add_parser("supervisor", help="run bounded maintainer supervisor workflows")
     supervisor_subparsers = supervisor_parser.add_subparsers(dest="supervisor_command")
@@ -712,6 +726,34 @@ def main(argv: list[str] | None = None) -> int:
         except (VideoProviderError, FetchError, ValueError) as exc:
             parser.exit(2, f"topology video provider-run: {exc}\n")
         print(json_dumps(result.payload))
+        return 0
+    if args.command == "video" and args.video_command == "provider-keygen":
+        try:
+            payload = generate_provider_keypair(
+                args.output_dir,
+                key_id=args.key_id,
+                provider_name=args.provider_name,
+                topology_root=Path(args.root).expanduser().resolve(),
+            )
+        except (VideoProviderError, ValueError) as exc:
+            parser.exit(2, f"topology video provider-keygen: {exc}\n")
+        print(json_dumps(payload))
+        return 0
+    if args.command == "video" and args.video_command == "provider-stage":
+        try:
+            payload = stage_video_provider_bundle_from_key(
+                Path(args.root).expanduser().resolve(),
+                source_id=args.source_id,
+                artifact_dir=args.artifact_dir,
+                provider_root=args.provider_root,
+                private_key_file=args.private_key_file,
+                provider_key_id=args.provider_key_id,
+                provider_name=args.provider_name,
+                attested_by=args.attested_by,
+            )
+        except (VideoProviderError, ValueError) as exc:
+            parser.exit(2, f"topology video provider-stage: {exc}\n")
+        print(json_dumps(payload))
         return 0
     if args.command == "supervisor" and args.supervisor_command == "run":
         try:

@@ -110,6 +110,13 @@ The provider-run wrapper processes topology-staged trusted bundles only. It
 does not accept arbitrary artifact directories or attestation flags from you.
 If provider-run fails, report the blocker and stop.
 
+Provider-side setup is not an OpenClaw agent task. A trusted operator/provider
+may use `topology video provider-keygen --root <topology-root>` and
+`topology video provider-stage` outside the OpenClaw workspace to stage the
+bundle that `video-provider-run.sh` consumes. The public key must enter
+`ops/keys/video_provider_public_keys.json` through a reviewed topology change;
+OpenClaw must not register trust roots.
+
 ### What Counts As Deep Video Evidence
 
 Transcript evidence must come from one of:

@@ -107,6 +107,13 @@ This wrapper processes topology-staged trusted provider output only. It does
 not accept artifact directories, attestation manifests, or trusted flags from
 the agent. If no staged trusted bundle exists, report the blocker and stop.
 
+Provider-side staging is separate from OpenClaw. A trusted operator/provider
+uses `topology video provider-keygen --root <topology-root>` and
+`topology video provider-stage` outside the OpenClaw workspace to create the
+bundle consumed by `video-provider-run.sh`. Provider public keys enter
+`ops/keys/video_provider_public_keys.json` only through reviewed topology
+changes; OpenClaw must not register trust roots.
+
 ## Runtime Projection
 
 Generate the local-only projection with:

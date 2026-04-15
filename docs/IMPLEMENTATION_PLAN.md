@@ -441,6 +441,12 @@ Video evidence commands:
 - `topology video provider-run`: process a topology-staged trusted provider
   bundle and attach deep-ready video evidence. Ordinary CLI and OpenClaw wrappers
   cannot self-attest trusted video evidence.
+- `topology video provider-keygen --root <topology-root>` and
+  `topology video provider-stage`:
+  provider/operator-side commands for creating the signed staged bundle consumed
+  by provider-run. Public keys enter the trusted registry through reviewed
+  topology changes, not a low-friction local CLI writer. These commands are not
+  generated as OpenClaw wrappers.
 
 Consumer bootstrap commands:
 

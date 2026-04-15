@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from cryptography.hazmat.primitives import serialization
 
 from knowledge_topology.ids import is_valid_id, new_id
 from knowledge_topology.paths import TopologyPaths
@@ -39,6 +41,7 @@ OPERATOR_PROVENANCE = {
 }
 PROVIDER_ROOT_ENV = "KNOWLEDGE_TOPOLOGY_VIDEO_PROVIDER_ROOT"
 PROVIDER_KEYS_RELATIVE = "ops/keys/video_provider_public_keys.json"
+SAFE_PROVIDER_TOKEN = re.compile(r"[A-Za-z0-9_.:-]+")
 
 
 @dataclass(frozen=True)
@@ -52,6 +55,12 @@ def utc_now() -> str:
 
 def canonical_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def safe_token(value: str, field: str) -> str:
+    if not isinstance(value, str) or not SAFE_PROVIDER_TOKEN.fullmatch(value.strip()):
+        raise VideoProviderError(f"{field} must be a safe token")
+    return value.strip()
 
 
 def display_path(paths: TopologyPaths, path: str | Path) -> str:
@@ -74,6 +83,124 @@ def sign_bundle_with_private_key(private_key_hex: str, payload: dict[str, Any]) 
     return private_key.sign(canonical_json(payload).encode("utf-8")).hex()
 
 
+def public_key_hex_from_private(private_key_hex: str) -> str:
+    private_key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(private_key_hex))
+    return private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    ).hex()
+
+
+def safe_external_file(paths: TopologyPaths, path: str | Path, label: str) -> Path:
+    raw = Path(path).expanduser()
+    if raw.is_symlink() or any(part.casefold() == ".openclaw" for part in raw.parts):
+        raise VideoProviderError(f"{label} must not be a symlink or inside OpenClaw private state")
+    candidate = raw.resolve()
+    if not candidate.is_file():
+        raise VideoProviderError(f"{label} must be a regular non-symlink file")
+    if candidate == paths.root or paths.root in candidate.parents:
+        raise VideoProviderError(f"{label} must be outside topology root")
+    if any(part.casefold() == ".openclaw" for part in candidate.parts):
+        raise VideoProviderError(f"{label} must not be inside OpenClaw private state")
+    return candidate
+
+
+def safe_external_dir(paths: TopologyPaths, path: str | Path, label: str, *, create: bool = False) -> Path:
+    raw = Path(path).expanduser()
+    if raw.is_symlink() or any(part.casefold() == ".openclaw" for part in raw.parts):
+        raise VideoProviderError(f"{label} must not be a symlink or inside OpenClaw private state")
+    candidate = raw.resolve()
+    if candidate == paths.root or paths.root in candidate.parents:
+        raise VideoProviderError(f"{label} must be outside topology root")
+    if any(part.casefold() == ".openclaw" for part in candidate.parts):
+        raise VideoProviderError(f"{label} must not be inside OpenClaw private state")
+    if create:
+        candidate.mkdir(parents=True, exist_ok=True)
+    if candidate.is_symlink() or not candidate.is_dir():
+        raise VideoProviderError(f"{label} must be a real directory")
+    return candidate
+
+
+def read_key_payload(path: Path, label: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise VideoProviderError(f"{label} JSON is invalid: {exc}") from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != "1.0":
+        raise VideoProviderError(f"{label} must be a versioned JSON object")
+    if payload.get("algorithm") != "ed25519":
+        raise VideoProviderError(f"{label} algorithm must be ed25519")
+    return payload
+
+
+def generate_provider_keypair(
+    output_dir: str | Path,
+    *,
+    key_id: str,
+    provider_name: str = "local-provider",
+    topology_root: str | Path | None = None,
+) -> dict[str, Any]:
+    safe_key = safe_token(key_id, "key_id")
+    safe_provider = safe_token(provider_name, "provider_name")
+    if topology_root is None:
+        directory = Path(output_dir).expanduser().resolve()
+        directory.mkdir(parents=True, exist_ok=True)
+        if directory.is_symlink() or not directory.is_dir():
+            raise VideoProviderError("output_dir must be a real directory")
+    else:
+        directory = safe_external_dir(TopologyPaths.from_root(topology_root), output_dir, "output_dir", create=True)
+    private_key = Ed25519PrivateKey.generate()
+    private_hex = private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).hex()
+    public_hex = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    ).hex()
+    private_path = directory / f"{safe_key}.private.json"
+    public_path = directory / f"{safe_key}.public.json"
+    for path in [private_path, public_path]:
+        if path.exists() or path.is_symlink():
+            raise VideoProviderError(f"refusing to overwrite key file: {path.name}")
+    private_payload = {
+        "schema_version": "1.0",
+        "key_id": safe_key,
+        "provider_name": safe_provider,
+        "algorithm": "ed25519",
+        "private_key": private_hex,
+        "public_key": public_hex,
+        "created_at": utc_now(),
+    }
+    public_payload = {
+        "schema_version": "1.0",
+        "key_id": safe_key,
+        "provider_name": safe_provider,
+        "algorithm": "ed25519",
+        "public_key": public_hex,
+        "created_at": private_payload["created_at"],
+    }
+    atomic_write_text(private_path, json.dumps(private_payload, indent=2, sort_keys=True) + "\n")
+    private_path.chmod(0o600)
+    atomic_write_text(public_path, json.dumps(public_payload, indent=2, sort_keys=True) + "\n")
+    return {
+        "schema_version": "1.0",
+        "key_id": safe_key,
+        "provider_name": safe_provider,
+        "private_key_written": True,
+        "public_key_written": True,
+        "registry_entry": {
+            "key_id": safe_key,
+            "provider_name": safe_provider,
+            "algorithm": "ed25519",
+            "public_key": public_hex,
+            "allowed_attestations": ["provider"],
+        },
+        "registry_instruction": "Add registry_entry to ops/keys/video_provider_public_keys.json through a reviewed topology change and commit it before provider-run.",
+    }
+
+
 def ensure_key_registry_trusted(paths: TopologyPaths) -> Path:
     path = paths.resolve(PROVIDER_KEYS_RELATIVE)
     if path.is_symlink() or not path.is_file():
@@ -89,7 +216,7 @@ def ensure_key_registry_trusted(paths: TopologyPaths) -> Path:
     return path
 
 
-def load_provider_public_key(paths: TopologyPaths, key_id: str) -> Ed25519PublicKey:
+def load_provider_key_entry(paths: TopologyPaths, key_id: str) -> dict[str, Any]:
     registry = json.loads(ensure_key_registry_trusted(paths).read_text(encoding="utf-8"))
     if not isinstance(registry, dict) or registry.get("schema_version") != "1.0":
         raise VideoProviderError("trusted video provider public-key registry is invalid")
@@ -100,8 +227,13 @@ def load_provider_public_key(paths: TopologyPaths, key_id: str) -> Ed25519Public
             public_key = item.get("public_key")
             if not isinstance(public_key, str):
                 raise VideoProviderError("trusted video provider public key is invalid")
-            return Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key))
+            return item
     raise VideoProviderError("trusted video provider key id is unknown")
+
+
+def load_provider_public_key(paths: TopologyPaths, key_id: str) -> Ed25519PublicKey:
+    public_key = load_provider_key_entry(paths, key_id)["public_key"]
+    return Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key))
 
 
 def verify_signature(paths: TopologyPaths, bundle: dict[str, Any]) -> dict[str, Any]:
@@ -123,14 +255,7 @@ def provider_root_from_env(paths: TopologyPaths) -> Path:
     value = os.environ.get(PROVIDER_ROOT_ENV, "")
     if not value.strip():
         raise VideoProviderError(f"{PROVIDER_ROOT_ENV} is required")
-    root = Path(value).expanduser().resolve()
-    if root == paths.root or paths.root in root.parents:
-        raise VideoProviderError("trusted provider root must be outside topology root")
-    if any(part.casefold() == ".openclaw" for part in root.parts):
-        raise VideoProviderError("trusted provider root must not be inside OpenClaw private state")
-    if root.is_symlink() or not root.exists() or not root.is_dir():
-        raise VideoProviderError("trusted provider root must be a real directory")
-    return root
+    return safe_external_dir(paths, value, "trusted provider root")
 
 
 def safe_trusted_dir(paths: TopologyPaths, provider_root: Path, source_id: str) -> Path:
@@ -218,12 +343,7 @@ def stage_trusted_video_bundle(
 
     paths = TopologyPaths.from_root(root)
     source_packet_exists(paths, source_id)
-    provider_root_path = Path(provider_root).expanduser().resolve()
-    if provider_root_path == paths.root or paths.root in provider_root_path.parents:
-        raise VideoProviderError("trusted provider root must be outside topology root")
-    provider_root_path.mkdir(parents=True, exist_ok=True)
-    if provider_root_path.is_symlink() or not provider_root_path.is_dir():
-        raise VideoProviderError("trusted provider root must be a real directory")
+    provider_root_path = safe_external_dir(paths, provider_root, "trusted provider root", create=True)
     source_dir = Path(artifact_dir).expanduser()
     if source_dir.is_symlink() or not source_dir.is_dir():
         raise VideoProviderError("artifact_dir must be a real directory")
@@ -272,6 +392,63 @@ def stage_trusted_video_bundle(
     bundle_path = trusted / "bundle.json"
     atomic_write_text(bundle_path, json.dumps(bundle, indent=2, sort_keys=True) + "\n")
     return bundle_path
+
+
+def stage_video_provider_bundle_from_key(
+    root: str | Path,
+    *,
+    source_id: str,
+    artifact_dir: str | Path,
+    provider_root: str | Path,
+    private_key_file: str | Path,
+    provider_key_id: str | None = None,
+    provider_name: str | None = None,
+    attested_by: str = "provider",
+) -> dict[str, Any]:
+    paths = TopologyPaths.from_root(root)
+    private_path = safe_external_file(paths, private_key_file, "private_key_file")
+    source_dir = safe_external_dir(paths, artifact_dir, "artifact_dir")
+    key_payload = read_key_payload(private_path, "private_key_file")
+    private_key = key_payload.get("private_key")
+    if not isinstance(private_key, str):
+        raise VideoProviderError("private_key_file private_key is required")
+    key_id = safe_token(provider_key_id or key_payload.get("key_id", ""), "provider_key_id")
+    if key_payload.get("key_id") and key_payload.get("key_id") != key_id:
+        raise VideoProviderError("private_key_file key_id does not match provider_key_id")
+    registry_entry = load_provider_key_entry(paths, key_id)
+    registered_provider = safe_token(registry_entry.get("provider_name", ""), "registered provider_name")
+    payload_provider = key_payload.get("provider_name")
+    if isinstance(payload_provider, str) and payload_provider and payload_provider != registered_provider:
+        raise VideoProviderError("private_key_file provider_name does not match registered provider")
+    requested_provider = safe_token(provider_name, "provider_name") if provider_name is not None else registered_provider
+    if requested_provider != registered_provider:
+        raise VideoProviderError("provider_name must match registered provider")
+    allowed_attestations = registry_entry.get("allowed_attestations")
+    if not isinstance(allowed_attestations, list) or not all(isinstance(value, str) for value in allowed_attestations):
+        raise VideoProviderError("trusted video provider registry entry must declare allowed_attestations")
+    if attested_by not in allowed_attestations:
+        raise VideoProviderError(f"provider key is not allowed to create {attested_by} attestations")
+    registered_hex = str(registry_entry["public_key"])
+    if registered_hex != public_key_hex_from_private(private_key):
+        raise VideoProviderError("private key does not match registered provider public key")
+    bundle_path = stage_trusted_video_bundle(
+        paths.root,
+        source_id=source_id,
+        artifact_dir=source_dir,
+        provider_root=provider_root,
+        signing_private_key=private_key,
+        provider_key_id=key_id,
+        provider_name=registered_provider,
+        attested_by=attested_by,
+    )
+    return {
+        "schema_version": "1.0",
+        "source_id": source_id,
+        "provider": registered_provider,
+        "provider_key_id": key_id,
+        "bundle_path": f"{source_id}/bundle.json",
+        "provider_root_env": PROVIDER_ROOT_ENV,
+    }
 
 
 def read_verified_bundle(paths: TopologyPaths, source_id: str) -> tuple[Path, dict[str, Any]]:
