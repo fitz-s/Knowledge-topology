@@ -379,7 +379,7 @@ not auto-promote to active canonical truth.
 All business logic goes through one Python package and CLI. Integrations are
 thin facades.
 
-P0-P9 shipped CLI commands:
+Current shipped CLI commands:
 
 - `topology init`
 - `topology ingest`
@@ -393,6 +393,7 @@ P0-P9 shipped CLI commands:
 - `topology doctor`
 - `topology agent-guard`
 - `topology openclaw`
+- `topology video`
 
 P0-P9 shipped doctor subcommands:
 
@@ -419,6 +420,12 @@ OpenClaw bridge commands:
 - `topology openclaw lease`: lease the next OpenClaw writeback job.
 - `topology openclaw run-writeback`: validate evidence and emit writeback
   proposals through the live bridge.
+
+Video evidence commands:
+
+- `topology video attach-artifact`: bind local video, transcript, key-frame,
+  audio summary, or landing metadata artifacts to a `video_platform` source
+  packet.
 
 Adapters may call the CLI or library, but must not implement separate business
 rules.

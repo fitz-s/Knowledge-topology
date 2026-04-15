@@ -40,9 +40,10 @@ loop, and evaluation layer around the existing authority model.
   attachment, and video text artifacts flowing into digest requests.
 - `docs/package-plans/REAL_TEST_PLAN.md` captures the broader external-pattern
   analysis but is not a package-gated mainline plan.
-- `docs/MAINLINE_STATUS.md` mentions `video_platform` and `topology video` in
-  real-use surfaces, but the P11.7 plan/review artifacts are missing. This is a
-  governance drift that must be fixed first.
+- `docs/MAINLINE_STATUS.md`, `docs/package-plans/P11_7_VIDEO_PLATFORM_INGEST.md`,
+  and `docs/package-reviews/P11_7_UNFREEZE.md` now converge on the shipped
+  P11.7 video-platform surface after P12.0. This convergence must be preserved
+  before later P12 work proceeds.
 - `docs/OPENCLAW.md` documents CLI wiring, but external repos do not yet get a
   generated local config, wrapper scripts, skills, or protocol snippets.
 - `topology openclaw ...` exists, but there is no `topology bootstrap ...`.

@@ -29,6 +29,14 @@ contract.
 | P8 Codex and Claude Integration | approved | `docs/package-plans/P8_CODEX_CLAUDE_INTEGRATION.md` | `docs/package-reviews/P8_UNFREEZE.md` |
 | P9 OpenClaw Runtime Projection | approved | `docs/package-plans/P9_OPENCLAW_INTEGRATION.md` | `docs/package-reviews/P9_UNFREEZE.md` |
 | P10 Mainline Closure | approved | `docs/package-plans/P10_MAINLINE_CLOSURE.md` | `docs/package-reviews/P10_UNFREEZE.md` |
+| P11.1 Builder Compose / Writeback Symmetry | approved | `docs/package-plans/P11_1_BUILDER_WRITEBACK_SYMMETRY.md` | `docs/package-reviews/P11_1_UNFREEZE.md` |
+| P11.2 Digest Runner Closure | approved | `docs/package-plans/P11_2_DIGEST_RUNNER_CLOSURE.md` | `docs/package-reviews/P11_2_UNFREEZE.md` |
+| P11.3 Fetch V2 | approved | `docs/package-plans/P11_3_FETCH_V2.md` | `docs/package-reviews/P11_3_UNFREEZE.md` |
+| P11.4 OpenClaw Live Bridge | approved | `docs/package-plans/P11_4_OPENCLAW_LIVE_BRIDGE.md` | `docs/package-reviews/P11_4_UNFREEZE.md` |
+| P11.5 Lint / Doctor Split | approved | `docs/package-plans/P11_5_LINT_DOCTOR_SPLIT.md` | `docs/package-reviews/P11_5_UNFREEZE.md` |
+| P11.6 Subject / File-Index | waived_by_user | `docs/package-plans/P11_6_SUBJECT_FILE_INDEX.md` | `docs/package-reviews/P11_6_UNFREEZE.md` |
+| P11.7 Video Platform Ingest | approved | `docs/package-plans/P11_7_VIDEO_PLATFORM_INGEST.md` | `docs/package-reviews/P11_7_UNFREEZE.md` |
+| P12.0 State Convergence Patch | approved | `docs/package-plans/P12_USAGE_CLOSURE.md` | `docs/package-reviews/P12_0_UNFREEZE.md` |
 
 ## Shipped CLI Reality
 
@@ -46,6 +54,7 @@ Top-level shipped commands:
 - `topology writeback`
 - `topology agent-guard`
 - `topology openclaw`
+- `topology video`
 
 Shipped compose subcommands:
 
@@ -73,6 +82,10 @@ Shipped OpenClaw bridge subcommands:
 - `topology openclaw issue-lease`
 - `topology openclaw lease`
 - `topology openclaw run-writeback`
+
+Shipped video subcommands:
+
+- `topology video attach-artifact`
 
 ## Deferred Surfaces
 
