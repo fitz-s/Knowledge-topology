@@ -259,6 +259,7 @@ def build_digest_model_request(root: str | Path, source_id: str) -> DigestModelR
         sections = []
         if source_text is not None:
             sections.append(("locator_excerpt", source_text))
+        attached_text_kinds = set()
         for artifact in source_packet.get("artifacts", []):
             if not isinstance(artifact, dict) or artifact.get("kind") != "video_text_artifact":
                 continue
@@ -268,7 +269,14 @@ def build_digest_model_request(root: str | Path, source_id: str) -> DigestModelR
                 continue
             text = safe_packet_text_file(packet_dir, path)
             if text:
+                attached_text_kinds.add(str(artifact_kind))
                 sections.append((str(artifact_kind), text))
+        missing = {"transcript", "key_frames", "audio_summary"} - attached_text_kinds
+        if missing:
+            raise DigestWorkerError(
+                "video_platform source is not ready for deep digest; missing artifacts: "
+                + ", ".join(sorted(missing))
+            )
         if sections:
             joined = "\n\n".join(f"## {label}\n{text}" for label, text in sections)
             source_text = bounded_source_text(joined)

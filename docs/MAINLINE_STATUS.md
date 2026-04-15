@@ -38,6 +38,7 @@ contract.
 | P11.7 Video Platform Ingest | approved | `docs/package-plans/P11_7_VIDEO_PLATFORM_INGEST.md` | `docs/package-reviews/P11_7_UNFREEZE.md` |
 | P12.0 State Convergence Patch | approved | `docs/package-plans/P12_USAGE_CLOSURE.md` | `docs/package-reviews/P12_0_UNFREEZE.md` |
 | P12.1 Consumer Bootstrap | waived_by_user | `docs/package-plans/P12_1_CONSUMER_BOOTSTRAP.md` | `docs/package-reviews/P12_1_UNFREEZE.md` |
+| P12.2 Video / Media Closure | approved | `docs/package-plans/P12_2_VIDEO_MEDIA_CLOSURE.md` | `docs/package-reviews/P12_2_UNFREEZE.md` |
 
 ## Shipped CLI Reality
 
@@ -88,6 +89,9 @@ Shipped OpenClaw bridge subcommands:
 
 Shipped video subcommands:
 
+- `topology video ingest`
+- `topology video status`
+- `topology video prepare-digest`
 - `topology video attach-artifact`
 
 Shipped bootstrap / consumer subcommands:

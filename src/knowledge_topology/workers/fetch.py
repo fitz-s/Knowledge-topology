@@ -33,7 +33,7 @@ class FetchError(ValueError):
 class IngestResult:
     packet_id: str
     packet_path: Path
-    digest_job_path: Path
+    digest_job_path: Path | None
 
 
 @dataclass(frozen=True)
@@ -885,13 +885,15 @@ def ingest_source(
     for relative, text in files.items():
         atomic_write_text(packet_dir / relative, text)
     atomic_write_text(packet_dir / "packet.json", json.dumps(packet.to_dict(), indent=2, sort_keys=True) + "\n")
-    digest_job = create_job(
-        root,
-        "digest",
-        payload={"source_id": packet.id, "audience": audience},
-        subject_repo_id=subject_repo_id,
-        subject_head_sha=subject_head_sha,
-        base_canonical_rev=base_canonical_rev,
-        created_by="reader",
-    )
+    digest_job = None
+    if packet.source_type != "video_platform":
+        digest_job = create_job(
+            root,
+            "digest",
+            payload={"source_id": packet.id, "audience": audience},
+            subject_repo_id=subject_repo_id,
+            subject_head_sha=subject_head_sha,
+            base_canonical_rev=base_canonical_rev,
+            created_by="reader",
+        )
     return IngestResult(packet.id, packet_dir / "packet.json", digest_job)

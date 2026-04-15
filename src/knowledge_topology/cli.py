@@ -35,6 +35,10 @@ from knowledge_topology.workers.doctor import doctor_queues
 from knowledge_topology.workers.doctor import stale_anchors
 from knowledge_topology.workers.lint import run_lints, run_repo_lints, run_runtime_lints
 from knowledge_topology.workers.run_digest_queue import DigestQueueRunnerError, run_digest_queue
+from knowledge_topology.workers.video import VideoWorkflowError
+from knowledge_topology.workers.video import prepare_digest as prepare_video_digest
+from knowledge_topology.workers.video import video_ingest
+from knowledge_topology.workers.video import video_status
 from knowledge_topology.workers.writeback import WritebackError, writeback_session
 from knowledge_topology.workers.digest import DigestWorkerError, write_digest_artifacts
 from knowledge_topology.workers.fetch import FetchError, attach_video_artifact, ingest_source
@@ -197,8 +201,29 @@ def build_parser() -> argparse.ArgumentParser:
     consumer_parser.add_argument("--topology-root", required=True, help="topology root")
     consumer_parser.add_argument("--subject-path", required=True, help="subject repo path")
 
-    video_parser = subparsers.add_parser("video", help="attach operator-captured video evidence")
+    video_parser = subparsers.add_parser("video", help="manage platform video evidence workflows")
     video_subparsers = video_parser.add_subparsers(dest="video_command")
+    video_ingest_parser = video_subparsers.add_parser("ingest", help="operator-facing video URL intake")
+    video_ingest_parser.add_argument("url", help="platform video URL or share text")
+    video_ingest_parser.add_argument("--root", default=".", help="topology root")
+    video_ingest_parser.add_argument("--note", required=True, help="curator note")
+    video_ingest_parser.add_argument("--depth", choices=["deep", "standard", "scan"], default="standard")
+    video_ingest_parser.add_argument("--audience", choices=["builders", "openclaw", "all"], default="all")
+    video_ingest_parser.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    video_ingest_parser.add_argument("--subject-head-sha", required=True, help="subject HEAD SHA")
+    video_ingest_parser.add_argument("--base-canonical-rev", required=True, help="base canonical revision")
+    video_ingest_parser.add_argument("--provider", choices=["youtube", "yt-dlp", "browser-capture", "manual-upload"], default="manual-upload")
+    video_ingest_parser.add_argument("--transcriber", choices=["whisper", "provider", "none"], default="none")
+    video_ingest_parser.add_argument("--vision-provider", choices=["gemini", "openai", "none"], default="none")
+    video_ingest_parser.add_argument("--auto-digest", action="store_true", help="enqueue digest only if video evidence is ready")
+    video_ingest_parser.add_argument("--redistributable", choices=["yes", "no", "unknown"], default="unknown")
+    video_status_parser = video_subparsers.add_parser("status", help="report video source evidence completeness")
+    video_status_parser.add_argument("--root", default=".", help="topology root")
+    video_status_parser.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_prepare = video_subparsers.add_parser("prepare-digest", help="check video source digest readiness")
+    video_prepare.add_argument("--root", default=".", help="topology root")
+    video_prepare.add_argument("--source-id", required=True, help="video_platform source packet id")
+    video_prepare.add_argument("--allow-locator-only", action="store_true", help="allow shallow locator-only digest")
     video_attach = video_subparsers.add_parser("attach-artifact", help="attach local video/transcript evidence to a video source packet")
     video_attach.add_argument("--root", default=".", help="topology root")
     video_attach.add_argument("--source-id", required=True, help="video_platform source packet id")
@@ -288,7 +313,10 @@ def main(argv: list[str] | None = None) -> int:
         except (FetchError, SourcePacketError, ValueError) as exc:
             parser.exit(2, f"topology ingest: {exc}\n")
         print(f"created source packet: {result.packet_path}")
-        print(f"enqueued digest job: {result.digest_job_path}")
+        if result.digest_job_path is not None:
+            print(f"enqueued digest job: {result.digest_job_path}")
+        else:
+            print("digest job not enqueued: video_platform requires attached evidence")
         return 0
     if args.command == "digest":
         root = Path(args.root).expanduser().resolve()
@@ -555,6 +583,48 @@ def main(argv: list[str] | None = None) -> int:
         for message in result.messages:
             print(message)
         return 0 if result.ok else 1
+    if args.command == "video" and args.video_command == "ingest":
+        try:
+            result = video_ingest(
+                Path(args.root).expanduser().resolve(),
+                args.url,
+                note=args.note,
+                depth=args.depth,
+                audience=args.audience,
+                subject_repo_id=args.subject_repo_id,
+                subject_head_sha=args.subject_head_sha,
+                base_canonical_rev=args.base_canonical_rev,
+                provider=args.provider,
+                transcriber=args.transcriber,
+                vision_provider=args.vision_provider,
+                auto_digest=args.auto_digest,
+                redistributable=args.redistributable,
+            )
+        except (VideoWorkflowError, FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video ingest: {exc}\n")
+        print(f"created video source packet: {result.packet_path}")
+        if result.digest_job_path is not None:
+            print(f"enqueued video digest job: {result.digest_job_path}")
+        print(json_dumps(result.status))
+        return 0
+    if args.command == "video" and args.video_command == "status":
+        try:
+            payload = video_status(Path(args.root).expanduser().resolve(), args.source_id)
+        except (VideoWorkflowError, FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video status: {exc}\n")
+        print(json_dumps(payload))
+        return 0 if payload["ready_for_deep_digest"] else 1
+    if args.command == "video" and args.video_command == "prepare-digest":
+        try:
+            payload = prepare_video_digest(
+                Path(args.root).expanduser().resolve(),
+                args.source_id,
+                allow_locator_only=args.allow_locator_only,
+            )
+        except (VideoWorkflowError, FetchError, ValueError) as exc:
+            parser.exit(2, f"topology video prepare-digest: {exc}\n")
+        print(json_dumps(payload))
+        return 0 if payload["digest_ready"] else 1
     if args.command == "video" and args.video_command == "attach-artifact":
         try:
             packet_path = attach_video_artifact(

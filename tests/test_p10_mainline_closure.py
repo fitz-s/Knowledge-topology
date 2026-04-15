@@ -53,6 +53,7 @@ class P10MainlineClosureTests(unittest.TestCase):
             "docs/package-plans/P11_6_SUBJECT_FILE_INDEX.md",
             "docs/package-plans/P11_7_VIDEO_PLATFORM_INGEST.md",
             "docs/package-plans/P12_1_CONSUMER_BOOTSTRAP.md",
+            "docs/package-plans/P12_2_VIDEO_MEDIA_CLOSURE.md",
         ]:
             self.assertTrue((ROOT / plan).exists(), plan)
             self.assertIn(plan, status)
@@ -65,6 +66,7 @@ class P10MainlineClosureTests(unittest.TestCase):
             "docs/package-reviews/P11_6_UNFREEZE.md",
             "docs/package-reviews/P11_7_UNFREEZE.md",
             "docs/package-reviews/P12_1_UNFREEZE.md",
+            "docs/package-reviews/P12_2_UNFREEZE.md",
         ]:
             self.assertTrue((ROOT / review).exists(), review)
             self.assertIn(review, status)
@@ -114,7 +116,8 @@ class P10MainlineClosureTests(unittest.TestCase):
             self.assertIn(shipped, openclaw_help)
 
         video_help = cli("video", "--help")
-        self.assertIn("attach-artifact", video_help)
+        for shipped in ["ingest", "status", "prepare-digest", "attach-artifact"]:
+            self.assertIn(shipped, video_help)
 
         bootstrap_help = cli("bootstrap", "--help")
         for shipped in ["codex", "claude", "openclaw", "remove"]:

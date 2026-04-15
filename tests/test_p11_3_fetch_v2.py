@@ -11,6 +11,7 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from knowledge_topology.workers.digest import build_digest_model_request
+from knowledge_topology.workers.digest import DigestWorkerError
 from knowledge_topology.workers.fetch import EXTERNAL_PUBLIC_TEXT_LIMIT
 from knowledge_topology.workers.fetch import FetchError
 from knowledge_topology.workers.fetch import FetchResponse
@@ -328,6 +329,8 @@ class P11FetchV2Tests(unittest.TestCase):
             result = ingest(root, douyin_share, fetcher=failing_fetcher)
             packet = json.loads(result.packet_path.read_text(encoding="utf-8"))
             excerpt = (result.packet_path.parent / "excerpt.md").read_text(encoding="utf-8")
+            self.assertIsNone(result.digest_job_path)
+            self.assertEqual(list((root / "ops/queue/digest/pending").glob("job_*.json")), [])
             self.assertEqual(packet["source_type"], "video_platform")
             self.assertEqual(packet["content_status"], "partial")
             self.assertEqual(packet["content_mode"], "excerpt_only")
@@ -337,6 +340,8 @@ class P11FetchV2Tests(unittest.TestCase):
             self.assertEqual(packet["artifacts"][0]["url"], "https://v.douyin.com/6l8q1jGwRl4/")
             self.assertIn("Required Follow-Up Artifacts", excerpt)
             self.assertIn("transcript_or_caption_text", excerpt)
+            with self.assertRaisesRegex(DigestWorkerError, "missing artifacts"):
+                build_digest_model_request(root, packet["id"])
 
     def test_video_platform_rejects_public_text_and_local_blob_modes(self):
         with tempfile.TemporaryDirectory() as tmp:
