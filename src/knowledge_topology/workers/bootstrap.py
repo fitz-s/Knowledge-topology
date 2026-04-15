@@ -36,6 +36,8 @@ class ConsumerDoctorResult:
 MANIFEST = ".knowledge-topology-manifest.json"
 CONFIG = ".knowledge-topology.json"
 GENERATED_BY = "knowledge-topology bootstrap"
+OPENCLAW_AGENTS_START = "<!-- KNOWLEDGE-TOPOLOGY:OPENCLAW:START -->"
+OPENCLAW_AGENTS_END = "<!-- KNOWLEDGE-TOPOLOGY:OPENCLAW:END -->"
 SKILL_CONSUME = """---
 name: topology-consume
 description: Use this subject repo's local Knowledge Topology builder pack workflow.
@@ -567,6 +569,113 @@ def merge_claude_settings(settings_path: Path) -> str:
     return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
+def openclaw_tool_doc() -> str:
+    return """# Knowledge Topology Tool
+
+This OpenClaw workspace has an external Knowledge Topology tool installed.
+
+Use the generated wrappers under `.openclaw/topology/`. Do not answer source
+intake, video intake, or durable memory questions from chat-only reasoning.
+
+## Mandatory Rules
+
+- Use `.openclaw/topology/resolve-context.sh` before topology operations.
+- Use `.openclaw/topology/compose-openclaw.sh` and
+  `.openclaw/topology/doctor-openclaw.sh` before relying on projection context.
+- No `src_` path means no source packet.
+- No `dg_` path means no digest.
+- No `mut_` path means no proposal.
+- A natural-language summary is not topology ingestion.
+- A video locator packet alone is not learned video knowledge.
+- Page-visible title, description, thumbnail, or chapter list must not be
+  labeled as transcript, key frames, or audio summary.
+
+## Video Workflow
+
+```bash
+.openclaw/topology/video-ingest.sh "<url>" --note "<why this matters>"
+.openclaw/topology/video-status.sh --source-id <src_...>
+.openclaw/topology/video-trace.sh --source-id <src_...>
+```
+
+If `ready_for_deep_digest` is false, stop and report missing evidence. Do not
+produce a content-level digest.
+
+The default OpenClaw attach wrapper cannot create operator/provider-attested
+deep evidence:
+
+```bash
+.openclaw/topology/video-attach-artifact.sh ...
+```
+
+It is for shallow/local staging only. Deep video evidence must come through a
+trusted provider/operator path, not self-attested agent labels.
+
+## Writeback Workflow
+
+```bash
+.openclaw/topology/capture-source.sh <summary.json>
+.openclaw/topology/issue-lease.sh <summary.json>
+.openclaw/topology/lease.sh <owner>
+.openclaw/topology/run-writeback.sh <lease-path> <summary.json>
+```
+
+`capture-source.sh` is evidence capture only. `run-writeback.sh` requires an
+enriched summary with `source_id`, `digest_id`, and evidence bound to the
+leased job.
+
+## Reporting
+
+Report topology work with concrete paths:
+
+```text
+Stage:
+Source packet:
+Digest:
+Mutation proposal:
+Blocked because:
+Next required evidence:
+```
+
+Use `none` for missing paths. Do not replace missing paths with prose.
+"""
+
+
+def merge_openclaw_agents_md(existing: str | None = None) -> str:
+    block = "\n".join([
+        OPENCLAW_AGENTS_START,
+        "",
+        "## Knowledge Topology Tool",
+        "",
+        "This workspace has Knowledge Topology installed. You MUST use the",
+        "`.openclaw/topology/` wrappers for source intake, video intake,",
+        "runtime writeback, and topology projection checks.",
+        "",
+        "Read `TOPOLOGY_TOOL.md` before handling links, videos, source",
+        "learning, runtime memory, or writeback.",
+        "",
+        "Hard gates:",
+        "",
+        "- No `src_` path means no source packet.",
+        "- No `dg_` path means no digest.",
+        "- No `mut_` path means no proposal.",
+        "- Chat summaries are not topology ingestion.",
+        "- Video title/description/chapter list is not transcript/key frames/audio summary.",
+        "- The default OpenClaw video attach wrapper cannot self-attest deep evidence.",
+        "",
+        OPENCLAW_AGENTS_END,
+        "",
+    ])
+    if existing is None or not existing.strip():
+        return "# OpenClaw Workspace Instructions\n\n" + block
+    start = existing.find(OPENCLAW_AGENTS_START)
+    end = existing.find(OPENCLAW_AGENTS_END)
+    if start != -1 and end != -1 and end > start:
+        end += len(OPENCLAW_AGENTS_END)
+        return existing[:start].rstrip() + "\n\n" + block + existing[end:].lstrip()
+    return existing.rstrip() + "\n\n" + block
+
+
 def base_files(context: dict[str, Any]) -> dict[str, tuple[str, bool]]:
     topology_root = context["topology_root"]
     config = json.dumps(context, indent=2, sort_keys=True) + "\n"
@@ -699,7 +808,9 @@ Required workflow:
    the knowledge system. Return the actual `src_`, `dg_`, and `mut_` paths.
 """
     return {
+        "TOPOLOGY_TOOL.md": (openclaw_tool_doc(), False),
         ".openclaw/topology/topology.env": (env, False),
+        ".openclaw/topology/TOOL.md": (openclaw_tool_doc(), False),
         ".openclaw/topology/qmd-extra-paths.txt": (qmd_paths, False),
         ".openclaw/topology/resolve-context.sh": (openclaw_context_script(topology_root, context["subject_path"]), True),
         ".openclaw/topology/compose-openclaw.sh": (openclaw_compose_script(topology_root, project_id, context["subject_path"]), True),
@@ -770,6 +881,9 @@ def bootstrap_consumer(topology_root: str | Path, subject_path: str | Path, *, t
     elif target == "openclaw":
         assert project_id is not None
         files.update(openclaw_files(context, project_id))
+        agents_path = root / "AGENTS.md"
+        agents_existing = agents_path.read_text(encoding="utf-8") if agents_path.exists() else None
+        files["AGENTS.md"] = (merge_openclaw_agents_md(agents_existing), False)
     else:
         raise BootstrapError(f"unknown bootstrap target: {target}")
     written: list[Path] = []
@@ -781,7 +895,7 @@ def bootstrap_consumer(topology_root: str | Path, subject_path: str | Path, *, t
             content,
             manifest,
             executable=executable,
-            allow_unmanaged_overwrite=relative == ".claude/settings.json",
+            allow_unmanaged_overwrite=relative in {".claude/settings.json", "AGENTS.md"},
         )
         if did_write:
             written.append(path)

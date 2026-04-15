@@ -85,7 +85,10 @@ class P12OpenClawConsumerBundleTests(unittest.TestCase):
         tmp, topology, subject, workspace = self.make_roots()
         with tmp:
             for relative in [
+                "AGENTS.md",
+                "TOPOLOGY_TOOL.md",
                 ".openclaw/topology/resolve-context.sh",
+                ".openclaw/topology/TOOL.md",
                 ".openclaw/topology/compose-openclaw.sh",
                 ".openclaw/topology/doctor-openclaw.sh",
                 ".openclaw/topology/capture-source.sh",
@@ -100,7 +103,15 @@ class P12OpenClawConsumerBundleTests(unittest.TestCase):
             ]:
                 path = workspace / relative
                 self.assertTrue(path.exists(), relative)
-                self.assertTrue(os.access(path, os.X_OK), relative)
+                if relative.endswith(".sh"):
+                    self.assertTrue(os.access(path, os.X_OK), relative)
+            agents_md = (workspace / "AGENTS.md").read_text(encoding="utf-8")
+            self.assertIn("Knowledge Topology Tool", agents_md)
+            self.assertIn("No `dg_` path means no digest", agents_md)
+            self.assertIn("Chat summaries are not topology ingestion", agents_md)
+            tool_md = (workspace / "TOPOLOGY_TOOL.md").read_text(encoding="utf-8")
+            self.assertIn(".openclaw/topology/video-ingest.sh", tool_md)
+            self.assertIn("Stage:", tool_md)
             qmd = (workspace / ".openclaw/topology/qmd-extra-paths.txt").read_text(encoding="utf-8")
             allowed = [
                 "projections/openclaw/file-index.json",

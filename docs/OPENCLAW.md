@@ -28,10 +28,15 @@ topology bootstrap openclaw \
   --project-id "<runtime-project-id>"
 ```
 
-The command writes only consumer-local wiring under
-`<openclaw-workspace-path>/.openclaw/topology/`:
+The command writes only consumer-local wiring into the OpenClaw workspace:
+
+- workspace `AGENTS.md` marker block
+- workspace `TOPOLOGY_TOOL.md`
+
+Under `.openclaw/topology/` it writes:
 
 - `topology.env`
+- `TOOL.md`
 - `qmd-extra-paths.txt`
 - `resolve-context.sh`
 - `compose-openclaw.sh`
