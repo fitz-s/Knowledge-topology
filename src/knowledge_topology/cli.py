@@ -33,6 +33,7 @@ from knowledge_topology.workers.doctor import doctor_projections
 from knowledge_topology.workers.doctor import doctor_public_safe
 from knowledge_topology.workers.doctor import doctor_queues
 from knowledge_topology.workers.doctor import stale_anchors
+from knowledge_topology.workers.evaluation import EvaluationError, run_evaluation
 from knowledge_topology.workers.lint import run_lints, run_repo_lints, run_runtime_lints
 from knowledge_topology.workers.run_digest_queue import DigestQueueRunnerError, run_digest_queue
 from knowledge_topology.workers.supervisor import SupervisorError, run_supervisor
@@ -256,6 +257,12 @@ def build_parser() -> argparse.ArgumentParser:
     supervisor_run.add_argument("--auto-apply-low-risk", action="store_true", help="apply only low-risk open-gap packs")
     supervisor_run.add_argument("--openclaw-project-id", help="compile OpenClaw projection for project id")
     supervisor_run.add_argument("--subject-path", help="optional subject path for OpenClaw projection verification")
+
+    eval_parser = subparsers.add_parser("eval", help="run deterministic topology evaluation reports")
+    eval_subparsers = eval_parser.add_subparsers(dest="eval_command")
+    eval_run = eval_subparsers.add_parser("run", help="write a local-only evaluation report")
+    eval_run.add_argument("--root", default=".", help="topology root")
+    eval_run.add_argument("--subject", dest="subject_repo_id", help="optional subject repo id")
 
     openclaw_parser = subparsers.add_parser("openclaw", help="run OpenClaw live bridge operations")
     openclaw_subparsers = openclaw_parser.add_subparsers(dest="openclaw_command")
@@ -678,6 +685,16 @@ def main(argv: list[str] | None = None) -> int:
             )
         except (SupervisorError, ValueError) as exc:
             parser.exit(2, f"topology supervisor run: {exc}\n")
+        print(json_dumps(result.payload))
+        return 0
+    if args.command == "eval" and args.eval_command == "run":
+        try:
+            result = run_evaluation(
+                Path(args.root).expanduser().resolve(),
+                subject_repo_id=args.subject_repo_id,
+            )
+        except (EvaluationError, ValueError) as exc:
+            parser.exit(2, f"topology eval run: {exc}\n")
         print(json_dumps(result.payload))
         return 0
     if args.command == "openclaw" and args.openclaw_command == "capture-source":

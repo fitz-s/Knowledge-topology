@@ -397,6 +397,7 @@ Current shipped CLI commands:
 - `topology bootstrap`
 - `topology resolve-context`
 - `topology supervisor`
+- `topology eval`
 
 P0-P9 shipped doctor subcommands:
 
@@ -455,6 +456,13 @@ Maintainer supervisor command:
   recovery, digest queue work, digest reconciliation, optional low-risk
   open-gap apply, projection compilation, lint, doctor, and escalation card
   output. It calls existing workers and does not bypass `apply_mutation()`.
+
+Evaluation command:
+
+- `topology eval run`: write a local-only evaluation report with deterministic
+  artifact metrics for builder packs, mutation/writeback acceptance, stale
+  preconditions, conflict rate, video manual intervention, OpenClaw runtime
+  proposal acceptance, and unsupported manual metrics marked `not_measured`.
 
 Adapters may call the CLI or library, but must not implement separate business
 rules.

@@ -41,6 +41,7 @@ contract.
 | P12.2 Video / Media Closure | approved | `docs/package-plans/P12_2_VIDEO_MEDIA_CLOSURE.md` | `docs/package-reviews/P12_2_UNFREEZE.md` |
 | P12.3 OpenClaw Consumer Bundle | waived_by_user | `docs/package-plans/P12_3_OPENCLAW_CONSUMER_BUNDLE.md` | `docs/package-reviews/P12_3_UNFREEZE.md` |
 | P12.4 Maintainer Supervisor | waived_by_user | `docs/package-plans/P12_4_MAINTAINER_SUPERVISOR.md` | `docs/package-reviews/P12_4_UNFREEZE.md` |
+| P12.5 Evaluation / Benchmark | approved | `docs/package-plans/P12_5_EVALUATION_BENCHMARK.md` | `docs/package-reviews/P12_5_UNFREEZE.md` |
 
 ## Shipped CLI Reality
 
@@ -62,6 +63,7 @@ Top-level shipped commands:
 - `topology bootstrap`
 - `topology resolve-context`
 - `topology supervisor`
+- `topology eval`
 
 Shipped compose subcommands:
 
@@ -109,6 +111,10 @@ Shipped bootstrap / consumer subcommands:
 Shipped supervisor subcommands:
 
 - `topology supervisor run`
+
+Shipped evaluation subcommands:
+
+- `topology eval run`
 
 ## Deferred Surfaces
 
