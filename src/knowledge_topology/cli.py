@@ -35,6 +35,7 @@ from knowledge_topology.workers.doctor import doctor_queues
 from knowledge_topology.workers.doctor import stale_anchors
 from knowledge_topology.workers.lint import run_lints, run_repo_lints, run_runtime_lints
 from knowledge_topology.workers.run_digest_queue import DigestQueueRunnerError, run_digest_queue
+from knowledge_topology.workers.supervisor import SupervisorError, run_supervisor
 from knowledge_topology.workers.video import VideoWorkflowError
 from knowledge_topology.workers.video import prepare_digest as prepare_video_digest
 from knowledge_topology.workers.video import video_ingest
@@ -238,6 +239,23 @@ def build_parser() -> argparse.ArgumentParser:
     video_attach.add_argument("--artifact-path", required=True, help="local artifact file")
     video_attach.add_argument("--note", default="operator captured artifact", help="artifact note")
     video_attach.add_argument("--track-text", action="store_true", help="track bounded text excerpt instead of a local blob ref")
+
+    supervisor_parser = subparsers.add_parser("supervisor", help="run bounded maintainer supervisor workflows")
+    supervisor_subparsers = supervisor_parser.add_subparsers(dest="supervisor_command")
+    supervisor_run = supervisor_subparsers.add_parser("run", help="run maintainer supervisor once")
+    supervisor_run.add_argument("--root", default=".", help="topology root")
+    supervisor_run.add_argument("--subject", required=True, dest="subject_repo_id", help="subject repo id")
+    supervisor_run.add_argument("--digest-provider-command", help="local digest provider command")
+    supervisor_run.add_argument("--model-output-dir", help="JSON fixture provider directory")
+    supervisor_run.add_argument("--provider-timeout-seconds", type=int, default=120, help="provider timeout")
+    supervisor_run.add_argument("--owner", default="topology-supervisor", help="queue lease owner")
+    supervisor_run.add_argument("--max-digest-jobs", type=int, default=1, help="max digest jobs")
+    supervisor_run.add_argument("--max-reconcile", type=int, default=10, help="max digest artifacts to reconcile")
+    supervisor_run.add_argument("--max-apply", type=int, default=10, help="max low-risk mutations to apply")
+    supervisor_run.add_argument("--max-attempts", type=int, default=3, help="max queue attempts before failing expired leases")
+    supervisor_run.add_argument("--auto-apply-low-risk", action="store_true", help="apply only low-risk open-gap packs")
+    supervisor_run.add_argument("--openclaw-project-id", help="compile OpenClaw projection for project id")
+    supervisor_run.add_argument("--subject-path", help="optional subject path for OpenClaw projection verification")
 
     openclaw_parser = subparsers.add_parser("openclaw", help="run OpenClaw live bridge operations")
     openclaw_subparsers = openclaw_parser.add_subparsers(dest="openclaw_command")
@@ -640,6 +658,27 @@ def main(argv: list[str] | None = None) -> int:
         except (FetchError, ValueError) as exc:
             parser.exit(2, f"topology video attach-artifact: {exc}\n")
         print(f"updated video source packet: {packet_path}")
+        return 0
+    if args.command == "supervisor" and args.supervisor_command == "run":
+        try:
+            result = run_supervisor(
+                Path(args.root).expanduser().resolve(),
+                subject_repo_id=args.subject_repo_id,
+                digest_provider_command=args.digest_provider_command,
+                model_output_dir=args.model_output_dir,
+                provider_timeout_seconds=args.provider_timeout_seconds,
+                owner=args.owner,
+                max_digest_jobs=args.max_digest_jobs,
+                max_reconcile=args.max_reconcile,
+                max_apply=args.max_apply,
+                max_attempts=args.max_attempts,
+                auto_apply_low_risk=args.auto_apply_low_risk,
+                openclaw_project_id=args.openclaw_project_id,
+                subject_path=args.subject_path,
+            )
+        except (SupervisorError, ValueError) as exc:
+            parser.exit(2, f"topology supervisor run: {exc}\n")
+        print(json_dumps(result.payload))
         return 0
     if args.command == "openclaw" and args.openclaw_command == "capture-source":
         try:

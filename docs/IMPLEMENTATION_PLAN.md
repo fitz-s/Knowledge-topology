@@ -396,6 +396,7 @@ Current shipped CLI commands:
 - `topology video`
 - `topology bootstrap`
 - `topology resolve-context`
+- `topology supervisor`
 
 P0-P9 shipped doctor subcommands:
 
@@ -447,6 +448,13 @@ Consumer bootstrap commands:
   wiring, including OpenClaw workspace bundles when `--workspace` is provided.
 - `topology doctor consumer`: report missing, modified, or stale consumer
   wiring, including OpenClaw workspace bundles when `--workspace` is provided.
+
+Maintainer supervisor command:
+
+- `topology supervisor run`: run a bounded maintenance pass over queue lease
+  recovery, digest queue work, digest reconciliation, optional low-risk
+  open-gap apply, projection compilation, lint, doctor, and escalation card
+  output. It calls existing workers and does not bypass `apply_mutation()`.
 
 Adapters may call the CLI or library, but must not implement separate business
 rules.

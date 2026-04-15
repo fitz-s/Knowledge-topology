@@ -55,6 +55,7 @@ class P10MainlineClosureTests(unittest.TestCase):
             "docs/package-plans/P12_1_CONSUMER_BOOTSTRAP.md",
             "docs/package-plans/P12_2_VIDEO_MEDIA_CLOSURE.md",
             "docs/package-plans/P12_3_OPENCLAW_CONSUMER_BUNDLE.md",
+            "docs/package-plans/P12_4_MAINTAINER_SUPERVISOR.md",
         ]:
             self.assertTrue((ROOT / plan).exists(), plan)
             self.assertIn(plan, status)
@@ -69,6 +70,7 @@ class P10MainlineClosureTests(unittest.TestCase):
             "docs/package-reviews/P12_1_UNFREEZE.md",
             "docs/package-reviews/P12_2_UNFREEZE.md",
             "docs/package-reviews/P12_3_UNFREEZE.md",
+            "docs/package-reviews/P12_4_UNFREEZE.md",
         ]:
             self.assertTrue((ROOT / review).exists(), review)
             self.assertIn(review, status)
@@ -101,7 +103,7 @@ class P10MainlineClosureTests(unittest.TestCase):
     def test_cli_reality_matches_status(self):
         plan = read("docs/IMPLEMENTATION_PLAN.md")
         top_help = cli("--help")
-        for command in ["init", "ingest", "digest", "reconcile", "apply", "subject", "compose", "lint", "doctor", "writeback", "agent-guard", "openclaw", "video", "bootstrap", "resolve-context"]:
+        for command in ["init", "ingest", "digest", "reconcile", "apply", "subject", "compose", "lint", "doctor", "writeback", "agent-guard", "openclaw", "video", "bootstrap", "resolve-context", "supervisor"]:
             self.assertIn(command, top_help)
             self.assertIn(f"topology {command}", plan)
 
@@ -124,6 +126,9 @@ class P10MainlineClosureTests(unittest.TestCase):
         bootstrap_help = cli("bootstrap", "--help")
         for shipped in ["codex", "claude", "openclaw", "remove"]:
             self.assertIn(shipped, bootstrap_help)
+
+        supervisor_help = cli("supervisor", "--help")
+        self.assertIn("run", supervisor_help)
 
         doctor_help = cli("doctor", "--help")
         self.assertIn("stale-anchors", doctor_help)
