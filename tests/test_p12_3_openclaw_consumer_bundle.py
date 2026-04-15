@@ -202,6 +202,8 @@ class P12OpenClawConsumerBundleTests(unittest.TestCase):
             self.assertIn("No `dg_` path means no digest", video_skill)
             self.assertIn("Page-visible title", video_skill)
             self.assertIn("Do not label page-visible text as transcript", video_skill)
+            provider_wrapper = (workspace / ".openclaw/topology/video-provider-run.sh").read_text(encoding="utf-8")
+            self.assertIn(f"PYTHON={sys.executable}", provider_wrapper)
 
     def test_openclaw_compose_doctor_and_capture_wrappers_run(self):
         tmp, topology, subject, workspace = self.make_roots()

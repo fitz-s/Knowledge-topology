@@ -8,7 +8,7 @@ version = "0.0.0"
 description = "File-backed canonical topology substrate for agent-usable knowledge."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["cryptography>=41"]
 
 [project.scripts]
 topology = "knowledge_topology.cli:main"

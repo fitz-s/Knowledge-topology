@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import shlex
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -496,16 +497,18 @@ PY
 def openclaw_video_script(topology_root: str, subject_path: str, command: str) -> str:
     topology_literal = shlex.quote(topology_root)
     subject_literal = shlex.quote(subject_path)
+    python_literal = shlex.quote(sys.executable)
     if command == "ingest":
         return f"""#!/usr/bin/env bash
 set -euo pipefail
+PYTHON={python_literal}
 TOPOLOGY_ROOT={topology_literal}
 DEFAULT_SUBJECT_ROOT={subject_literal}
 export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
 SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
-CTX="$(python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
+CTX="$("$PYTHON" -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
 export CTX
-python3 - "$@" <<'PY'
+"$PYTHON" - "$@" <<'PY'
 import json, os, subprocess, sys
 ctx = json.loads(os.environ["CTX"])
 cmd = [
@@ -522,6 +525,7 @@ PY
     if command == "provider-run":
         return f"""#!/usr/bin/env bash
 set -euo pipefail
+PYTHON={python_literal}
 for arg in "$@"; do
   case "$arg" in
     --trusted-attestation|--trusted-attestation=*|--artifact-dir|--artifact-dir=*|--evidence-attestation|--evidence-attestation=*|--attestation-manifest|--attestation-manifest=*)
@@ -534,9 +538,9 @@ TOPOLOGY_ROOT={topology_literal}
 DEFAULT_SUBJECT_ROOT={subject_literal}
 export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
 SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
-CTX="$(python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
+CTX="$("$PYTHON" -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
 export CTX
-python3 - "$@" <<'PY'
+"$PYTHON" - "$@" <<'PY'
 import json, os, subprocess, sys
 ctx = json.loads(os.environ["CTX"])
 cmd = [
@@ -553,6 +557,7 @@ PY
     if command == "attach-artifact":
         return f"""#!/usr/bin/env bash
 set -euo pipefail
+PYTHON={python_literal}
 for arg in "$@"; do
   case "$arg" in
     --evidence-attestation|--evidence-attestation=*|--attestation-manifest|--attestation-manifest=*)
@@ -565,18 +570,19 @@ TOPOLOGY_ROOT={topology_literal}
 DEFAULT_SUBJECT_ROOT={subject_literal}
 export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
 SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
-python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json >/dev/null
-exec python3 -m knowledge_topology.cli video attach-artifact --root "$TOPOLOGY_ROOT" "$@"
+"$PYTHON" -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json >/dev/null
+exec "$PYTHON" -m knowledge_topology.cli video attach-artifact --root "$TOPOLOGY_ROOT" "$@"
 """
     return f"""#!/usr/bin/env bash
 set -euo pipefail
+PYTHON={python_literal}
 TOPOLOGY_ROOT={topology_literal}
 DEFAULT_SUBJECT_ROOT={subject_literal}
 export PYTHONPATH="$TOPOLOGY_ROOT/src:${{PYTHONPATH:-}}"
 SUBJECT_ROOT="${{SUBJECT_ROOT:-$DEFAULT_SUBJECT_ROOT}}"
-CTX="$(python3 -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
+CTX="$("$PYTHON" -m knowledge_topology.cli resolve-context --topology-root "$TOPOLOGY_ROOT" --subject-path "$SUBJECT_ROOT" --json)"
 export CTX
-exec python3 -m knowledge_topology.cli video {command} --root "$TOPOLOGY_ROOT" "$@"
+exec "$PYTHON" -m knowledge_topology.cli video {command} --root "$TOPOLOGY_ROOT" "$@"
 """
 
 
